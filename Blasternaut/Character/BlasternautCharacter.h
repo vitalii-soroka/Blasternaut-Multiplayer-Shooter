@@ -5,10 +5,11 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "../BlasternautTypes/TurningInPlace.h"
+#include "../Interfaces/InteractWithCrosshairsInterface.h"
 #include "BlasternautCharacter.generated.h"
 
 UCLASS()
-class BLASTERNAUT_API ABlasternautCharacter : public ACharacter
+class BLASTERNAUT_API ABlasternautCharacter : public ACharacter, public IInteractWithCrosshairsInterface
 {
 	GENERATED_BODY()
 
@@ -21,6 +22,9 @@ public:
 	virtual void PostInitializeComponents() override;
 
 	void PlayFireMontage(bool bAiming);
+	
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastHit();
 
 protected:
 	virtual void BeginPlay() override;
@@ -38,6 +42,7 @@ protected:
 	void FireButtonPressed();
 	void FireButtonReleased();
 
+	void PlayHitReactMontage();
 private:
 	UPROPERTY(VisibleAnywhere, Category = Camera)
 	class USpringArmComponent* CameraBoom;
@@ -71,6 +76,14 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	class UAnimMontage* FireWeaponMontage;
 
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UAnimMontage* HitReactMontage;
+
+	void HideCameraInCharacter();
+
+	UPROPERTY(EditAnywhere)
+	float CameraThreshold  = 200.f;
+
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();
@@ -82,4 +95,5 @@ public:
 	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return TurningInPlace; }
 
 	FVector GetHitTarget() const;
+	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 };

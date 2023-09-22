@@ -12,6 +12,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "BlasternautAnimInstance.h"
+#include "Blasternaut/Blasternaut.h"
 
 ABlasternautCharacter::ABlasternautCharacter()
 {
@@ -39,7 +40,11 @@ ABlasternautCharacter::ABlasternautCharacter()
 
 	// Camera ignores character collision
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+
+	GetMesh()->SetCollisionObjectType(ECC_SkeletalMesh);
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
+
 	GetCharacterMovement()->RotationRate = FRotator(0.f, 0.f, 600.f);
 
 	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
@@ -59,6 +64,14 @@ void ABlasternautCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 void ABlasternautCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+}
+
+void ABlasternautCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	AimOffset(DeltaTime);
+	HideCameraInCharacter();
 }
 
 void ABlasternautCharacter::PostInitializeComponents()
@@ -83,11 +96,18 @@ void ABlasternautCharacter::PlayFireMontage(bool bAiming)
 	}
 }
 
-void ABlasternautCharacter::Tick(float DeltaTime)
+void ABlasternautCharacter::PlayHitReactMontage()
 {
-	Super::Tick(DeltaTime);
+	if (!Combat || !Combat->EquippedWeapon) return;
 
-	AimOffset(DeltaTime);
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && HitReactMontage)
+	{
+		AnimInstance->Montage_Play(HitReactMontage);
+		//FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
+		FName SectionName("FromFront");
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
 }
 
 void ABlasternautCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -304,6 +324,33 @@ void ABlasternautCharacter::TurnInPlace(float DeltaTime)
 		{
 			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 			StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
+		}
+	}
+}
+
+void ABlasternautCharacter::MulticastHit_Implementation()
+{
+	PlayHitReactMontage();
+}
+
+void ABlasternautCharacter::HideCameraInCharacter()
+{
+	if (!IsLocallyControlled()) return;
+
+	if ( (FollowCamera->GetComponentLocation() - GetActorLocation()).Size() < CameraThreshold)
+	{
+		GetMesh()->SetVisibility(false);
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
+		}
+	}
+	else
+	{
+		GetMesh()->SetVisibility(true);
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
 		}
 	}
 }

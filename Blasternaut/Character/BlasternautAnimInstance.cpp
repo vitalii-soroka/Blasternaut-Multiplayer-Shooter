@@ -18,12 +18,12 @@ void UBlasternautAnimInstance::NativeUpdateAnimation(float DeltaTime)
 {
 	Super::NativeUpdateAnimation(DeltaTime);
 
-	if (BlasternautCharacter == nullptr)
+	if (!BlasternautCharacter)
 	{
 		BlasternautCharacter = Cast<ABlasternautCharacter>(TryGetPawnOwner());
 	}
 
-	if (BlasternautCharacter == nullptr) return;
+	if (!BlasternautCharacter) return;
 
 	FVector Velocity = BlasternautCharacter->GetVelocity();
 	Velocity.Z = 0.f;
@@ -82,11 +82,13 @@ void UBlasternautAnimInstance::NativeUpdateAnimation(float DeltaTime)
 		{
 			bLocallyControlled = true;
 			FTransform RightHandTrasform = EquippedWeapon->GetWeaponMesh()->
-				GetSocketTransform(FName("Hand_R"), ERelativeTransformSpace::RTS_World);
+				GetSocketTransform(FName("hand_r"), ERelativeTransformSpace::RTS_World);
 
-			RightHandRotation = UKismetMathLibrary::
-				FindLookAtRotation(RightHandTrasform.GetLocation(),
-					RightHandTrasform.GetLocation() + (RightHandTrasform.GetLocation() - BlasternautCharacter->GetHitTarget()));
+			FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(
+				RightHandTrasform.GetLocation(),
+				RightHandTrasform.GetLocation() + (RightHandTrasform.GetLocation() - BlasternautCharacter->GetHitTarget())
+			);
+			RightHandRotation = FMath::RInterpTo(RightHandRotation, LookAtRotation, DeltaTime, 30.f);
 		}
 	
 		//
