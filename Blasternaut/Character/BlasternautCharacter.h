@@ -4,8 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "../BlasternautTypes/TurningInPlace.h"
-#include "../Interfaces/InteractWithCrosshairsInterface.h"
+#include "Blasternaut/BlasternautTypes/TurningInPlace.h"
+#include "Blasternaut/Interfaces/InteractWithCrosshairsInterface.h"
 #include "BlasternautCharacter.generated.h"
 
 UCLASS()
@@ -26,6 +26,9 @@ public:
 	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastHit();
 
+	virtual void OnRep_ReplicatedMovement() override;
+	float CalculateSpeed();
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -38,6 +41,8 @@ protected:
 	void AimButtonPressed();
 	void AimButtonReleased();
 	void AimOffset(float DeltaTime);
+	void CalculateAO_Pitch();
+	void SimProxiesTurn();
 	virtual void Jump() override;
 	void FireButtonPressed();
 	void FireButtonReleased();
@@ -84,6 +89,17 @@ private:
 	UPROPERTY(EditAnywhere)
 	float CameraThreshold  = 200.f;
 
+	bool bRotateRootBone;
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	float TurnTreshold = 0.5f;
+
+	FRotator ProxyRotationLastFrame;
+	FRotator ProxyRotation;
+
+	float ProxyYaw;
+	float TimeSinceLastMoveReplication;
+	
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();
@@ -96,4 +112,5 @@ public:
 
 	FVector GetHitTarget() const;
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+	FORCEINLINE bool ShouldRotateRootBone() const { return bRotateRootBone; }
 };

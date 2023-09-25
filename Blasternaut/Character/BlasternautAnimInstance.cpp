@@ -21,22 +21,23 @@ void UBlasternautAnimInstance::NativeUpdateAnimation(float DeltaTime)
 	if (!BlasternautCharacter)
 	{
 		BlasternautCharacter = Cast<ABlasternautCharacter>(TryGetPawnOwner());
+		if (!BlasternautCharacter) return; // 23.09 // 
 	}
 
-	if (!BlasternautCharacter) return;
+	// 23.09 // FVector Velocity = BlasternautCharacter->GetVelocity();
+	// 23.09 // Velocity.Z = 0.f;
 
-	FVector Velocity = BlasternautCharacter->GetVelocity();
-	Velocity.Z = 0.f;
-
-	Speed = Velocity.Size();
+	// booleans for animation states
 	bIsInAir = BlasternautCharacter->GetMovementComponent()->IsFalling();
-
-	bIsAccelerating = BlasternautCharacter->GetCharacterMovement()->GetCurrentAcceleration().Size() > 0.f ? true : false;
-	bWeaponEquipped = BlasternautCharacter->IsWeaponEquipped();
-	EquippedWeapon = BlasternautCharacter->GetEquippedWeapon();
 	bIsCrouched = BlasternautCharacter->bIsCrouched;
+	bIsAccelerating = BlasternautCharacter->GetCharacterMovement()
+		->GetCurrentAcceleration().Size() > 0.f ? true : false;
+	bWeaponEquipped = BlasternautCharacter->IsWeaponEquipped();
 	bAiming = BlasternautCharacter->IsAiming();
+	bRotateRootBone = BlasternautCharacter->ShouldRotateRootBone();
 
+	Speed = BlasternautCharacter->CalculateSpeed(); // 23.09 // Velocity.Size();
+	EquippedWeapon = BlasternautCharacter->GetEquippedWeapon();
 	TurningInPlace = BlasternautCharacter->GetTurningInPlace();
 
 	// Offset Yaw for Starfing

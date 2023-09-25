@@ -54,13 +54,6 @@ ABlasternautCharacter::ABlasternautCharacter()
 	MinNetUpdateFrequency = 33.f;
 }
 
-void ABlasternautCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-
-	DOREPLIFETIME_CONDITION(ABlasternautCharacter, OverlappingWeapon, COND_OwnerOnly);
-}
-
 void ABlasternautCharacter::BeginPlay()
 {
 	Super::BeginPlay();
@@ -70,8 +63,29 @@ void ABlasternautCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	AimOffset(DeltaTime);
+	if (GetLocalRole() > ENetRole::ROLE_SimulatedProxy && IsLocallyControlled())
+	{
+		AimOffset(DeltaTime);
+	}
+	else
+	{
+		TimeSinceLastMoveReplication += DeltaTime;
+
+		if (TimeSinceLastMoveReplication > 0.25f)
+		{
+			OnRep_ReplicatedMovement();
+		}
+		CalculateAO_Pitch();
+	}
+
 	HideCameraInCharacter();
+}
+
+void ABlasternautCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME_CONDITION(ABlasternautCharacter, OverlappingWeapon, COND_OwnerOnly);
 }
 
 void ABlasternautCharacter::PostInitializeComponents()
@@ -81,6 +95,14 @@ void ABlasternautCharacter::PostInitializeComponents()
 	{
 		Combat->Character = this;
 	}
+}
+
+void ABlasternautCharacter::OnRep_ReplicatedMovement()	
+{
+	Super::OnRep_ReplicatedMovement();
+	
+	SimProxiesTurn();
+	TimeSinceLastMoveReplication = 0.f;
 }
 
 void ABlasternautCharacter::PlayFireMontage(bool bAiming)
@@ -208,15 +230,15 @@ void ABlasternautCharacter::AimButtonReleased()
 
 void ABlasternautCharacter::AimOffset(float DeltaTime)
 {
-	if (Combat && Combat->EquippedWeapon == nullptr) return;
+	if (Combat && !Combat->EquippedWeapon) return;
 
-	FVector Velocity = GetVelocity();
-	Velocity.Z = 0;
-	float Speed = Velocity.Size();
+	float Speed = CalculateSpeed();
+
 	bool bIsInAir = GetCharacterMovement()->IsFalling();
 
 	if (Speed == 0.f && !bIsInAir)	// stand
 	{
+		bRotateRootBone = true;
 		FRotator CurrentAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
 		FRotator DeltaAimRotation = UKismetMathLibrary::NormalizedDeltaRotator(CurrentAimRotation, StartingAimRotation);
 		AO_Yaw = DeltaAimRotation.Yaw;
@@ -232,28 +254,70 @@ void ABlasternautCharacter::AimOffset(float DeltaTime)
 
 	if (Speed > 0.f || bIsInAir) // run or jump
 	{
+		bRotateRootBone = false;
 		StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
 		AO_Yaw = 0.f;
 		bUseControllerRotationYaw = true;
 		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 	}
 
-	AO_Pitch = GetBaseAimRotation().Pitch;
-	
+	CalculateAO_Pitch();
+}
+
+void ABlasternautCharacter::CalculateAO_Pitch()
+{
 	//
 	// Due to compression when sending rotator through network
 	// Pitch should be converted back for players that is not locally controlled
 	//
+	AO_Pitch = GetBaseAimRotation().Pitch;
 	if (AO_Pitch > 90.f && !IsLocallyControlled())
 	{
 		// map pitch from [270, 360) to [-90, 0)
 		AO_Pitch -= 360.f;
-
 		//FVector2D InRange(270.f, 360.f);
 		//FVector2D OutRange(-90.f, 0.f);
 		//AO_Pitch = FMath::GetMappedRangeValueClamped(InRange, OutRange, AO_Pitch);
-		
 	}
+}
+
+void ABlasternautCharacter::SimProxiesTurn()
+{
+	if (!Combat || !Combat->EquippedWeapon) return;
+
+	bRotateRootBone = false;
+
+	// 23.09 // float Speed = CalculateSpeed();
+	if (CalculateSpeed() > 0.f)
+	{
+		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+		return;
+	}
+
+	ProxyRotationLastFrame = ProxyRotation;
+	ProxyRotation = GetActorRotation();
+	ProxyYaw = UKismetMathLibrary::NormalizedDeltaRotator(ProxyRotation, ProxyRotationLastFrame).Yaw;
+	
+	//UE_LOG(LogTemp, Warning, TEXT("Proxy Yaw: %f"), ProxyYaw);
+
+	if (FMath::Abs(ProxyYaw) > TurnTreshold)
+	{
+		if (ProxyYaw > TurnTreshold)
+		{
+			TurningInPlace = ETurningInPlace::ETIP_Right;
+		}
+		else if (ProxyYaw < -TurnTreshold)
+		{
+			TurningInPlace = ETurningInPlace::ETIP_Left;
+		}
+		else
+		{
+			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+		}
+		return;
+	}
+
+	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 }
 
 void ABlasternautCharacter::Jump()
@@ -353,6 +417,13 @@ void ABlasternautCharacter::HideCameraInCharacter()
 			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
 		}
 	}
+}
+
+float ABlasternautCharacter::CalculateSpeed()
+{
+	FVector Velocity = GetVelocity();
+	Velocity.Z = 0;
+	return Velocity.Size();
 }
 
 void ABlasternautCharacter::SetOverlappingWeapon(AWeapon* Weapon)
