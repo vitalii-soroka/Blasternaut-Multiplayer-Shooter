@@ -13,7 +13,12 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "BlasternautAnimInstance.h"
 #include "Blasternaut/Blasternaut.h"
+#include "Blasternaut/PlayerController/BlasternautController.h"
+#include "Blasternaut/GameMode/BlasternautGameMode.h"
 
+//
+// ------------------- Init and Tick -------------------
+//
 ABlasternautCharacter::ABlasternautCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -57,28 +62,13 @@ ABlasternautCharacter::ABlasternautCharacter()
 void ABlasternautCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-}
 
-void ABlasternautCharacter::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
+	UpdateHUDHealth();
 
-	if (GetLocalRole() > ENetRole::ROLE_SimulatedProxy && IsLocallyControlled())
+	if (HasAuthority())
 	{
-		AimOffset(DeltaTime);
+		OnTakeAnyDamage.AddDynamic(this, &ABlasternautCharacter::ReceiveDamage);
 	}
-	else
-	{
-		TimeSinceLastMoveReplication += DeltaTime;
-
-		if (TimeSinceLastMoveReplication > 0.25f)
-		{
-			OnRep_ReplicatedMovement();
-		}
-		CalculateAO_Pitch();
-	}
-
-	HideCameraInCharacter();
 }
 
 void ABlasternautCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -86,6 +76,7 @@ void ABlasternautCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME_CONDITION(ABlasternautCharacter, OverlappingWeapon, COND_OwnerOnly);
+	DOREPLIFETIME(ABlasternautCharacter, Health);
 }
 
 void ABlasternautCharacter::PostInitializeComponents()
@@ -94,41 +85,6 @@ void ABlasternautCharacter::PostInitializeComponents()
 	if (Combat)
 	{
 		Combat->Character = this;
-	}
-}
-
-void ABlasternautCharacter::OnRep_ReplicatedMovement()	
-{
-	Super::OnRep_ReplicatedMovement();
-	
-	SimProxiesTurn();
-	TimeSinceLastMoveReplication = 0.f;
-}
-
-void ABlasternautCharacter::PlayFireMontage(bool bAiming)
-{
-	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
-
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && FireWeaponMontage)
-	{
-		AnimInstance->Montage_Play(FireWeaponMontage);
-		FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
-		AnimInstance->Montage_JumpToSection(SectionName);
-	}
-}
-
-void ABlasternautCharacter::PlayHitReactMontage()
-{
-	if (!Combat || !Combat->EquippedWeapon) return;
-
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && HitReactMontage)
-	{
-		AnimInstance->Montage_Play(HitReactMontage);
-		//FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
-		FName SectionName("FromFront");
-		AnimInstance->Montage_JumpToSection(SectionName);
 	}
 }
 
@@ -154,6 +110,32 @@ void ABlasternautCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
 	PlayerInputComponent->BindAxis("LookUp", this, &ABlasternautCharacter::LookUp);
 }
 
+void ABlasternautCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (GetLocalRole() > ENetRole::ROLE_SimulatedProxy && IsLocallyControlled())
+	{
+		AimOffset(DeltaTime);
+	}
+	else
+	{
+		TimeSinceLastMoveReplication += DeltaTime;
+
+		if (TimeSinceLastMoveReplication > 0.25f)
+		{
+			OnRep_ReplicatedMovement();
+		}
+		CalculateAO_Pitch();
+	}
+
+	HideCameraInCharacter();
+}
+
+
+//
+// ------------------- Movement -------------------
+//
 void ABlasternautCharacter::MoveForward(float Value)
 {
 	if (Controller != nullptr && Value != 0.f)
@@ -184,6 +166,91 @@ void ABlasternautCharacter::LookUp(float Value)
 	AddControllerPitchInput(Value);
 }
 
+void ABlasternautCharacter::TurnInPlace(float DeltaTime)
+{
+	if (AO_Yaw > 90.f)
+	{
+		TurningInPlace = ETurningInPlace::ETIP_Right;
+	}
+	else if (AO_Yaw < -90.f)
+	{
+		TurningInPlace = ETurningInPlace::ETIP_Left;
+	}
+	if (TurningInPlace != ETurningInPlace::ETIP_NotTurning)
+	{
+		InterpAO_Yaw = FMath::FInterpTo(InterpAO_Yaw, 0.f, DeltaTime, 4.f);
+		AO_Yaw = InterpAO_Yaw;
+
+		if (FMath::Abs(AO_Yaw) < 15.f)
+		{
+			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+			StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
+		}
+	}
+}
+
+void ABlasternautCharacter::Jump()
+{
+	if (bIsCrouched)
+	{
+		UnCrouch();
+	}
+	else
+	{
+		Super::Jump();
+	}
+}
+
+//
+// ------------------- Montages -------------------
+//
+void ABlasternautCharacter::PlayFireMontage(bool bAiming)
+{
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && FireWeaponMontage)
+	{
+		AnimInstance->Montage_Play(FireWeaponMontage);
+		FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+
+void ABlasternautCharacter::PlayHitReactMontage()
+{
+	if (!Combat || !Combat->EquippedWeapon) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && HitReactMontage)
+	{
+		AnimInstance->Montage_Play(HitReactMontage);
+		//FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
+		FName SectionName("FromFront");
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+
+//
+// ------------------- Buttons -------------------
+//
+void ABlasternautCharacter::AimButtonPressed()
+{
+	//if (Combat) ***
+	if (IsWeaponEquipped())
+	{
+		Combat->SetAiming(true);
+	}
+}
+
+void ABlasternautCharacter::AimButtonReleased()
+{
+	if (Combat)
+	{
+		Combat->SetAiming(false);
+	}
+}
+
 void ABlasternautCharacter::EquipButtonPressed()
 {
 	if (Combat)
@@ -211,20 +278,83 @@ void ABlasternautCharacter::CrouchButtonPressed()
 	}
 }
 
-void ABlasternautCharacter::AimButtonPressed()
-{
-	//if (Combat) ***
-	if (IsWeaponEquipped())
-	{
-		Combat->SetAiming(true);
-	}
-}
-
-void ABlasternautCharacter::AimButtonReleased()
+void ABlasternautCharacter::FireButtonPressed()
 {
 	if (Combat)
 	{
-		Combat->SetAiming(false);
+		Combat->FireButtonPressed(true);
+	}
+}
+
+void ABlasternautCharacter::FireButtonReleased()
+{
+	if (Combat)
+	{
+		Combat->FireButtonPressed(false);
+	}
+}
+
+//
+// ------------------- Replicated -------------------
+//
+void ABlasternautCharacter::OnRep_ReplicatedMovement()	
+{
+	Super::OnRep_ReplicatedMovement();
+	
+	SimProxiesTurn();
+	TimeSinceLastMoveReplication = 0.f;
+}
+
+void ABlasternautCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)
+{
+	if (OverlappingWeapon)
+	{
+		OverlappingWeapon->ShowPickupWidget(true);
+	}
+
+	if (LastWeapon)
+	{
+		LastWeapon->ShowPickupWidget(false);
+	}
+}
+
+void ABlasternautCharacter::OnRep_Health()
+{
+	// When health is changed and replicated, we can also call animation for clients
+	UpdateHUDHealth();
+	PlayHitReactMontage();
+}
+
+
+//
+// ------------------- To Sort -------------------
+//
+void ABlasternautCharacter::ReceiveDamage(AActor* DamageActor, float Damage, const UDamageType* DamageType, AController* InstigatorController, AActor* DamageCauser)
+{
+	Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
+	UpdateHUDHealth();
+	PlayHitReactMontage();
+
+	// Character should be eliminated
+	if (Health == 0.f)
+	{
+		auto* BlasternautGameMode = GetWorld()->GetAuthGameMode<ABlasternautGameMode>();
+		if (BlasternautGameMode) 
+		{
+			BlasternautController = BlasternautController ? BlasternautController : Cast<ABlasternautController>(Controller);
+			auto* AttackerController = Cast<ABlasternautController>(InstigatorController);
+			BlasternautGameMode->PlayerEliminated(this, BlasternautController, AttackerController);
+		}
+	}
+}
+
+void ABlasternautCharacter::UpdateHUDHealth()
+{
+	BlasternautController = BlasternautController ? BlasternautController : Cast<ABlasternautController>(Controller);
+
+	if (BlasternautController)
+	{
+		BlasternautController->SetHUDHealth(Health, MaxHealth);
 	}
 }
 
@@ -320,81 +450,12 @@ void ABlasternautCharacter::SimProxiesTurn()
 	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 }
 
-void ABlasternautCharacter::Jump()
-{
-	if (bIsCrouched)
-	{
-		UnCrouch();
-	}
-	else
-	{
-		Super::Jump();
-	}
-}
-
-void ABlasternautCharacter::FireButtonPressed()
-{
-	if (Combat)
-	{
-		Combat->FireButtonPressed(true);
-	}
-}
-
-void ABlasternautCharacter::FireButtonReleased()
-{
-	if (Combat)
-	{
-		Combat->FireButtonPressed(false);
-	}
-}
-
 void ABlasternautCharacter::ServerEquipButtonPressed_Implementation()
 {
 	if (Combat)
 	{
 		Combat->EquipWeapon(OverlappingWeapon);
 	}
-}
-
-void ABlasternautCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)
-{
-	if (OverlappingWeapon)
-	{
-		OverlappingWeapon->ShowPickupWidget(true);
-	}
-
-	if (LastWeapon)
-	{
-		LastWeapon->ShowPickupWidget(false);
-	}
-}
-
-void ABlasternautCharacter::TurnInPlace(float DeltaTime)
-{
-	if (AO_Yaw > 90.f)
-	{
-		TurningInPlace = ETurningInPlace::ETIP_Right;
-	}
-	else if (AO_Yaw < -90.f)
-	{
-		TurningInPlace = ETurningInPlace::ETIP_Left;
-	}
-	if (TurningInPlace != ETurningInPlace::ETIP_NotTurning)
-	{
-		InterpAO_Yaw = FMath::FInterpTo(InterpAO_Yaw, 0.f, DeltaTime, 4.f);
-		AO_Yaw = InterpAO_Yaw;
-
-		if (FMath::Abs(AO_Yaw) < 15.f)
-		{
-			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
-			StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
-		}
-	}
-}
-
-void ABlasternautCharacter::MulticastHit_Implementation()
-{
-	PlayHitReactMontage();
 }
 
 void ABlasternautCharacter::HideCameraInCharacter()
@@ -424,6 +485,25 @@ float ABlasternautCharacter::CalculateSpeed()
 	FVector Velocity = GetVelocity();
 	Velocity.Z = 0;
 	return Velocity.Size();
+}
+
+void ABlasternautCharacter::Elim()
+{
+
+}
+
+//
+// ------------------- GET - SET - CHECK -------------------
+//
+AWeapon* ABlasternautCharacter::GetEquippedWeapon() const
+{
+	return Combat == nullptr ? nullptr : Combat->EquippedWeapon;
+}
+
+FVector ABlasternautCharacter::GetHitTarget() const
+{
+	if (Combat) return Combat->HitTarget;
+	return FVector();
 }
 
 void ABlasternautCharacter::SetOverlappingWeapon(AWeapon* Weapon)
@@ -456,17 +536,9 @@ bool ABlasternautCharacter::IsAiming()
 	return (Combat && Combat->bIsAiming);
 }
 
-AWeapon* ABlasternautCharacter::GetEquippedWeapon() const
-{
-	return Combat == nullptr ? nullptr : Combat->EquippedWeapon;
-}
-
-FVector ABlasternautCharacter::GetHitTarget() const
-{
-	if (Combat) return Combat->HitTarget;
-	return FVector();
-}
-
-
+//void ABlasternautCharacter::MulticastHit_Implementation()
+//{
+//	PlayHitReactMontage();
+//}
 
 

@@ -24,10 +24,11 @@ class BLASTERNAUT_API AWeapon : public AActor
 	
 public:	
 	AWeapon();
-
 	virtual void Tick(float DeltaTime) override;
+
 	// replica
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	
 	void ShowPickupWidget(bool bShowWidget);
 	virtual void Fire(const FVector& HitTarget);
 
@@ -53,6 +54,16 @@ public:
 
 	UPROPERTY(EditAnywhere)
 	float ZoomInterpSpeed = 20.f;
+
+	/**
+	*  Automatic weapon fire
+	*/
+
+	UPROPERTY(EditAnywhere, Category = Combat)
+	float FireDelay = .15f;
+
+	UPROPERTY(EditAnywhere, Category = Combat)
+	bool bAutomatic = true;
 
 protected:
 	virtual void BeginPlay() override;

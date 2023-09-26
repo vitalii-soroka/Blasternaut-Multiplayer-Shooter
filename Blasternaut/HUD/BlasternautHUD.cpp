@@ -2,6 +2,8 @@
 
 
 #include "BlasternautHUD.h"
+#include "GameFramework/PlayerController.h"
+#include "CharacterOverlay.h"
 
 void ABlasternautHUD::DrawHUD()
 {
@@ -48,6 +50,23 @@ void ABlasternautHUD::DrawHUD()
 
 
 
+}
+
+void ABlasternautHUD::BeginPlay()
+{
+	Super::BeginPlay();
+
+	AddCharacterOverlay();
+}
+
+void ABlasternautHUD::AddCharacterOverlay()
+{
+	APlayerController* PlayerController = GetOwningPlayerController();
+	if (PlayerController && CharacterOverlayClass)
+	{
+		CharacterOverlay = CreateWidget<UCharacterOverlay>(PlayerController, CharacterOverlayClass);
+		CharacterOverlay->AddToViewport();
+	}
 }
 
 void ABlasternautHUD::DrawCrosshair(UTexture2D* Texture, FVector2D ViewportCenter, FVector2D Spread, FLinearColor CrosshairColor)

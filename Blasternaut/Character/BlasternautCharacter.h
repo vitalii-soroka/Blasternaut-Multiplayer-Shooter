@@ -23,11 +23,13 @@ public:
 
 	void PlayFireMontage(bool bAiming);
 	
-	UFUNCTION(NetMulticast, Unreliable)
-	void MulticastHit();
+	//UFUNCTION(NetMulticast, Unreliable)
+	//void MulticastHit();
 
 	virtual void OnRep_ReplicatedMovement() override;
 	float CalculateSpeed();
+
+	void Elim();
 
 protected:
 	virtual void BeginPlay() override;
@@ -48,6 +50,18 @@ protected:
 	void FireButtonReleased();
 
 	void PlayHitReactMontage();
+
+	UFUNCTION()
+	void ReceiveDamage(
+		AActor* DamageActor, 
+		float Damage, 
+		const UDamageType* DamageType, 
+		class AController* InstigatorController,
+		AActor* DamageCauser
+	);
+
+	void UpdateHUDHealth();
+
 private:
 	UPROPERTY(VisibleAnywhere, Category = Camera)
 	class USpringArmComponent* CameraBoom;
@@ -100,6 +114,20 @@ private:
 	float ProxyYaw;
 	float TimeSinceLastMoveReplication;
 	
+	/**
+	*  Player Health
+	*/
+	UPROPERTY(EditAnywhere, Category = "Player Stats")
+	float MaxHealth = 100.f;
+	
+	UPROPERTY(ReplicatedUsing = OnRep_Health, VisibleAnywhere, Category = "Player Stats")
+	float Health = 100.f;
+
+	UFUNCTION()
+	void OnRep_Health();
+
+	class ABlasternautController* BlasternautController;
+
 public:
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();

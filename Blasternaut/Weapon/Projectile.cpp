@@ -51,14 +51,12 @@ void AProjectile::BeginPlay()
 
 void AProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
-	//
+	/*auto* BlasternautCharacter = Cast<ABlasternautCharacter>(OtherActor);
 
-	auto* BlasternautCharacter = Cast<ABlasternautCharacter>(OtherActor);
-	
 	if (BlasternautCharacter)
 	{
 		BlasternautCharacter->MulticastHit();
-	}
+	}*/
 
 	Destroy();
 }
