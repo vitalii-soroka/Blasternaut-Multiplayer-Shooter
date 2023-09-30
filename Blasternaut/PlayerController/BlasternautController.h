@@ -15,10 +15,22 @@ class BLASTERNAUT_API ABlasternautController : public APlayerController
 	GENERATED_BODY()
 public:
 	void SetHUDHealth(float Health, float MaxHealth);
+	void SetHUDScore(float Score);
+	void SetHUDDefeats(int32 Defeats);
+	void SetHUDWeaponAmmo(int32 Ammo);
 
 protected:
+	virtual void OnPossess(APawn* InPawn) override;
 	virtual void BeginPlay() override;
 
 private:
-	class ABlasternautHUD* BlasternautHUD;
+	void TrySetHUD();
+	bool IsOverlayValid() const;
+
+
+private:
+	UPROPERTY()
+	class ABlasternautHUD* BlasternautHUD = nullptr;
+
+public:
 };

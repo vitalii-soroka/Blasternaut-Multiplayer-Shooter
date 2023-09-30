@@ -22,4 +22,9 @@ public:
 		ABlasternautController* VictimController,
 		ABlasternautController* AttackerController
 	);
+
+	virtual void RequestRespawn(
+		ACharacter* CharacterToEliminate,
+		AController* ElimmedController
+	);
 };

@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "Blasternaut/BlasternautTypes/TurningInPlace.h"
 #include "Blasternaut/Interfaces/InteractWithCrosshairsInterface.h"
+#include "Components/TimelineComponent.h"
 #include "BlasternautCharacter.generated.h"
 
 UCLASS()
@@ -16,41 +17,49 @@ class BLASTERNAUT_API ABlasternautCharacter : public ACharacter, public IInterac
 public:
 	ABlasternautCharacter();
 	
-	virtual void Tick(float DeltaTime) override;
+	virtual void PostInitializeComponents() override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	virtual void PostInitializeComponents() override;
+	virtual void Tick(float DeltaTime) override;
 
-	void PlayFireMontage(bool bAiming);
-	
-	//UFUNCTION(NetMulticast, Unreliable)
-	//void MulticastHit();
-
-	virtual void OnRep_ReplicatedMovement() override;
+	// --------------- ---------------
 	float CalculateSpeed();
+	virtual void OnRep_ReplicatedMovement() override;
 
+	// --------------- Playing Montages ---------------
+	void PlayElimMontage();
+	void PlayFireMontage(bool bAiming);
+	void PlayHitReactMontage();
+
+	// --------------- Elimination and Destroying ---------------
 	void Elim();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastElim();
+	virtual void Destroyed() override;
 
 protected:
 	virtual void BeginPlay() override;
 
-	void MoveForward(float Value);
-	void MoveRight(float Value);
+	// --------------- Movement ---------------
+	virtual void Jump() override;
+	void CalculateAO_Pitch();
+	void SimProxiesTurn();
 	void Turn(float Value);
 	void LookUp(float Value);
+	void MoveRight(float Value);
+	void MoveForward(float Value);
+	void AimOffset(float DeltaTime);
+
+	// --------------- Button Pressed ---------------
 	void EquipButtonPressed();
 	void CrouchButtonPressed();
 	void AimButtonPressed();
 	void AimButtonReleased();
-	void AimOffset(float DeltaTime);
-	void CalculateAO_Pitch();
-	void SimProxiesTurn();
-	virtual void Jump() override;
 	void FireButtonPressed();
 	void FireButtonReleased();
 
-	void PlayHitReactMontage();
-
+	// --------------- Damage ---------------
 	UFUNCTION()
 	void ReceiveDamage(
 		AActor* DamageActor, 
@@ -60,7 +69,11 @@ protected:
 		AActor* DamageCauser
 	);
 
+	// --------------- HUD ---------------
 	void UpdateHUDHealth();
+
+	// Poll for any relevant classes and initialize class
+	void PollInit();
 
 private:
 	UPROPERTY(VisibleAnywhere, Category = Camera)
@@ -92,11 +105,15 @@ private:
 	ETurningInPlace TurningInPlace;
 	void TurnInPlace(float DeltaTime);
 
+
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	class UAnimMontage* FireWeaponMontage;
 
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* HitReactMontage;
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UAnimMontage* ElimMontage;
 
 	void HideCameraInCharacter();
 
@@ -114,9 +131,7 @@ private:
 	float ProxyYaw;
 	float TimeSinceLastMoveReplication;
 	
-	/**
-	*  Player Health
-	*/
+	// --------------- Player Health ---------------
 	UPROPERTY(EditAnywhere, Category = "Player Stats")
 	float MaxHealth = 100.f;
 	
@@ -126,19 +141,66 @@ private:
 	UFUNCTION()
 	void OnRep_Health();
 
+	UPROPERTY()
 	class ABlasternautController* BlasternautController;
 
+	// --------------- Disolve Effect ---------------
+	UPROPERTY(VisibleAnywhere)
+	UTimelineComponent* DissolveTimeline;
+	
+	FOnTimelineFloat DissolveTrack;
+
+	UFUNCTION()
+	void UpdateDissolveMaterial(float DissolveValue);
+	void StartDissolve();
+
+	UPROPERTY(EditAnywhere)
+	UCurveFloat* DissolveCurve;
+
+	// Dynamic instance that can be changed at runtime
+	UPROPERTY(VisibleAnywhere, Category = "Elim")
+	UMaterialInstanceDynamic* DynamicDissolveMaterialInst;
+
+	// Material instance set in Blueprints, used with dynamic material instance
+	UPROPERTY(EditAnywhere, Category = "Elim")
+	UMaterialInstance* DissolveMaterialInst;
+
+	// --------------- Elim Bot ---------------
+	FTimerHandle ElimTimer;
+	void OnElimTimerFinished();
+
+	UPROPERTY(EditDefaultsOnly)
+	float ElimDelay = 3.f;
+	bool bElimmed = false;
+
+	UPROPERTY(EditAnywhere)
+	UParticleSystem* ElimBotEffect;
+
+	UPROPERTY(VisibleAnywhere)
+	UParticleSystemComponent* ElimBotComponent;
+
+	UPROPERTY(EditAnywhere)
+	class USoundCue* ElimBotSound;
+
+	UPROPERTY()
+	class ABlasternautPlayerState* BlasternautPlayerState = nullptr;
+
 public:
-	void SetOverlappingWeapon(AWeapon* Weapon);
-	bool IsWeaponEquipped();
 	bool IsAiming();
+	bool IsWeaponEquipped();
+	void SetOverlappingWeapon(AWeapon* Weapon);
+
+	FVector GetHitTarget() const;
+	AWeapon* GetEquippedWeapon() const;
 
 	FORCEINLINE float GetAO_Yaw() const { return AO_Yaw; }
 	FORCEINLINE float GetAO_Pitch() const { return AO_Pitch; }
-	AWeapon* GetEquippedWeapon() const;
-	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return TurningInPlace; }
 
-	FVector GetHitTarget() const;
-	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+	FORCEINLINE float GetHealth() const { return Health; }
+	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
+	FORCEINLINE bool IsElimmed() const { return bElimmed; }
+
 	FORCEINLINE bool ShouldRotateRootBone() const { return bRotateRootBone; }
+	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return TurningInPlace; }
+	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 };

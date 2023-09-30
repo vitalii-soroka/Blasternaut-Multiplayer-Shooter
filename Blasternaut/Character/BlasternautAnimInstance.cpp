@@ -35,6 +35,7 @@ void UBlasternautAnimInstance::NativeUpdateAnimation(float DeltaTime)
 	bWeaponEquipped = BlasternautCharacter->IsWeaponEquipped();
 	bAiming = BlasternautCharacter->IsAiming();
 	bRotateRootBone = BlasternautCharacter->ShouldRotateRootBone();
+	bElimmed = BlasternautCharacter->IsElimmed();
 
 	Speed = BlasternautCharacter->CalculateSpeed(); // 23.09 // Velocity.Size();
 	EquippedWeapon = BlasternautCharacter->GetEquippedWeapon();

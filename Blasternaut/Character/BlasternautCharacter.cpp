@@ -15,6 +15,12 @@
 #include "Blasternaut/Blasternaut.h"
 #include "Blasternaut/PlayerController/BlasternautController.h"
 #include "Blasternaut/GameMode/BlasternautGameMode.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "TimerManager.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundCue.h"
+#include "Particles/ParticleSystemComponent.h"
+#include "Blasternaut/PlayerState/BlasternautPlayerState.h"
 
 //
 // ------------------- Init and Tick -------------------
@@ -22,6 +28,8 @@
 ABlasternautCharacter::ABlasternautCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	SpawnCollisionHandlingMethod = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(GetMesh());
@@ -57,6 +65,8 @@ ABlasternautCharacter::ABlasternautCharacter()
 	// NET
 	NetUpdateFrequency = 66.f;
 	MinNetUpdateFrequency = 33.f;
+
+	DissolveTimeline = CreateDefaultSubobject<UTimelineComponent>(TEXT("DissolveTimelineComponent"));
 }
 
 void ABlasternautCharacter::BeginPlay()
@@ -65,6 +75,7 @@ void ABlasternautCharacter::BeginPlay()
 
 	UpdateHUDHealth();
 
+	// Only server registers damage
 	if (HasAuthority())
 	{
 		OnTakeAnyDamage.AddDynamic(this, &ABlasternautCharacter::ReceiveDamage);
@@ -114,6 +125,8 @@ void ABlasternautCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	PollInit();
+
 	if (GetLocalRole() > ENetRole::ROLE_SimulatedProxy && IsLocallyControlled())
 	{
 		AimOffset(DeltaTime);
@@ -132,6 +145,15 @@ void ABlasternautCharacter::Tick(float DeltaTime)
 	HideCameraInCharacter();
 }
 
+void ABlasternautCharacter::Destroyed()
+{
+	Super::Destroyed();
+
+	if (ElimBotComponent)
+	{
+		ElimBotComponent->DestroyComponent();
+	}
+}
 
 //
 // ------------------- Movement -------------------
@@ -214,6 +236,26 @@ void ABlasternautCharacter::PlayFireMontage(bool bAiming)
 		AnimInstance->Montage_Play(FireWeaponMontage);
 		FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
 		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+
+void ABlasternautCharacter::PlayElimMontage()
+{
+	
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ElimMontage)
+	{
+		auto AnimationTimeResult = AnimInstance->Montage_Play(ElimMontage);
+		if (AnimationTimeResult == 0.f) UE_LOG(LogTemp, Warning, TEXT("Failed to play Elim montage"));
+		//28.09
+		/*if (!HasAuthority() && IsLocallyControlled())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Montage Played LOCAL, %f"), anim_time);
+		}
+		else if (HasAuthority())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Montage Played SERVER, %f"), anim_time);
+		}*/
 	}
 }
 
@@ -332,9 +374,9 @@ void ABlasternautCharacter::OnRep_Health()
 void ABlasternautCharacter::ReceiveDamage(AActor* DamageActor, float Damage, const UDamageType* DamageType, AController* InstigatorController, AActor* DamageCauser)
 {
 	Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
-	UpdateHUDHealth();
-	PlayHitReactMontage();
 
+	UpdateHUDHealth();
+	
 	// Character should be eliminated
 	if (Health == 0.f)
 	{
@@ -346,6 +388,10 @@ void ABlasternautCharacter::ReceiveDamage(AActor* DamageActor, float Damage, con
 			BlasternautGameMode->PlayerEliminated(this, BlasternautController, AttackerController);
 		}
 	}
+	else
+	{
+		PlayHitReactMontage();
+	}
 }
 
 void ABlasternautCharacter::UpdateHUDHealth()
@@ -355,6 +401,19 @@ void ABlasternautCharacter::UpdateHUDHealth()
 	if (BlasternautController)
 	{
 		BlasternautController->SetHUDHealth(Health, MaxHealth);
+	}
+}
+
+void ABlasternautCharacter::PollInit()
+{
+	if (BlasternautPlayerState == nullptr)
+	{
+		BlasternautPlayerState = GetPlayerState<ABlasternautPlayerState>();
+		if (BlasternautPlayerState)
+		{
+			BlasternautPlayerState->AddToScore(0.f);
+			BlasternautPlayerState->AddToDefeats(0);
+		}
 	}
 }
 
@@ -489,7 +548,80 @@ float ABlasternautCharacter::CalculateSpeed()
 
 void ABlasternautCharacter::Elim()
 {
+	if (Combat && Combat->EquippedWeapon)
+	{
+		Combat->EquippedWeapon->Dropped();
+	}
 
+	MulticastElim();
+
+	GetWorldTimerManager().SetTimer(
+		ElimTimer,
+		this,
+		&ABlasternautCharacter::OnElimTimerFinished,
+		ElimDelay
+	);
+}
+
+void ABlasternautCharacter::MulticastElim_Implementation()
+{
+	bElimmed = true;
+
+	// Remove weapon - tmp solution for Hit and Elim Montages Collisions
+	//if (Combat) Combat->EquippedWeapon = nullptr;
+	// 28.09
+
+	PlayElimMontage();
+
+	// Movement disable
+	GetCharacterMovement()->DisableMovement();
+	GetCharacterMovement()->StopMovementImmediately();
+	if (BlasternautController) DisableInput(BlasternautController);
+
+	// Disable collision
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// Dissolve effect
+	if (DissolveMaterialInst)
+	{
+		DynamicDissolveMaterialInst = UMaterialInstanceDynamic::Create(DissolveMaterialInst, this);
+		GetMesh()->SetMaterial(0, DynamicDissolveMaterialInst);
+	
+		DynamicDissolveMaterialInst->SetScalarParameterValue(TEXT("Dissolve"), 0.55f);
+		DynamicDissolveMaterialInst->SetScalarParameterValue(TEXT("Glow"), 200.f);
+	}
+	StartDissolve();
+
+	// Spawns elim bot
+	if (ElimBotEffect)
+	{
+		FVector ElimBotSpawnPoint(GetActorLocation().X, GetActorLocation().Y, GetActorLocation().Z + 200.f);
+		ElimBotComponent = UGameplayStatics::SpawnEmitterAtLocation(
+			GetWorld(),
+			ElimBotEffect,
+			ElimBotSpawnPoint,
+			GetActorRotation()
+		);
+	}
+
+	if (ElimBotSound)
+	{
+		UGameplayStatics::SpawnSoundAtLocation(
+			this,
+			ElimBotSound,
+			GetActorLocation()
+		);
+	}
+}
+
+void ABlasternautCharacter::OnElimTimerFinished()
+{
+	auto* GameMode = GetWorld()->GetAuthGameMode<ABlasternautGameMode>();
+	if (GameMode)
+	{
+		GameMode->RequestRespawn(this, Controller);
+	}
 }
 
 //
@@ -504,6 +636,24 @@ FVector ABlasternautCharacter::GetHitTarget() const
 {
 	if (Combat) return Combat->HitTarget;
 	return FVector();
+}
+
+void ABlasternautCharacter::UpdateDissolveMaterial(float DissolveValue)
+{
+	if (DynamicDissolveMaterialInst)
+	{
+		DynamicDissolveMaterialInst->SetScalarParameterValue(TEXT("Dissolve"), DissolveValue);
+	}
+}
+
+void ABlasternautCharacter::StartDissolve()
+{
+	DissolveTrack.BindDynamic(this, &ABlasternautCharacter::UpdateDissolveMaterial);
+	if (DissolveCurve && DissolveTimeline)
+	{
+		DissolveTimeline->AddInterpFloat(DissolveCurve, DissolveTrack);
+		DissolveTimeline->Play();
+	}
 }
 
 void ABlasternautCharacter::SetOverlappingWeapon(AWeapon* Weapon)
