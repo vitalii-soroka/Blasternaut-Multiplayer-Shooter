@@ -10,6 +10,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMeshSocket.h"
 #include "Casing.h"
+#include "Blasternaut/PlayerController/BlasternautController.h"
 
 AWeapon::AWeapon()
 {
@@ -67,6 +68,21 @@ void AWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 	DOREPLIFETIME(AWeapon, Ammo);
 }
 
+void AWeapon::OnRep_Owner()
+{
+	Super::OnRep_Owner();
+
+	if (Owner == nullptr)
+	{
+		OwnerCharacter = nullptr;
+		OwnerController = nullptr;
+	}
+	else
+	{
+		TryUpdateHUDAmmo();
+	}
+}
+
 void AWeapon::OnSphereOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	ABlasternautCharacter* BlasternautCharacter = Cast<ABlasternautCharacter>(OtherActor);
@@ -113,15 +129,28 @@ void AWeapon::OnRep_WeaponState()
 	}
 }
 
-void AWeapon::OnRep_Ammo()
-{
-
-}
-
 void AWeapon::SpendRound()
 {
-	--Ammo;
+	Ammo = FMath::Clamp(Ammo - 1, 0, MagCapacity);
+	TryUpdateHUDAmmo();
+}
 
+void AWeapon::OnRep_Ammo()
+{
+	TryUpdateHUDAmmo();
+}
+
+void AWeapon::TryUpdateHUDAmmo()
+{
+	OwnerCharacter = OwnerCharacter == nullptr ? Cast<ABlasternautCharacter>(GetOwner()) : OwnerCharacter;
+	if (OwnerCharacter)
+	{
+		OwnerController = OwnerController == nullptr ? Cast<ABlasternautController>(OwnerCharacter->Controller) : OwnerController;
+		if (OwnerController)
+		{
+			OwnerController->SetHUDWeaponAmmo(Ammo);
+		}
+	}
 }
 
 void AWeapon::SetWeaponState(EWeaponState State)
@@ -175,10 +204,9 @@ void AWeapon::Fire(const FVector& HitTarget)
 					SocketTransform.GetRotation().Rotator()
 				);
 			}
-
 		}
-
 	}
+	SpendRound();
 }
 
 void AWeapon::Dropped()
@@ -188,5 +216,13 @@ void AWeapon::Dropped()
 
 	WeaponMesh->DetachFromComponent(DetachRules);
 	SetOwner(nullptr);
+	OwnerCharacter = nullptr;
+	OwnerController = nullptr;
+}
+
+void AWeapon::AddAmmo(int32 AmmoToAdd)
+{
+	Ammo = FMath::Clamp(Ammo - AmmoToAdd, 0, MagCapacity);
+	TryUpdateHUDAmmo();
 }
 

@@ -21,6 +21,7 @@
 #include "Sound/SoundCue.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Blasternaut/PlayerState/BlasternautPlayerState.h"
+#include "Blasternaut/Weapon/WeaponTypes.h"
 
 //
 // ------------------- Init and Tick -------------------
@@ -108,6 +109,7 @@ void ABlasternautCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
 	PlayerInputComponent->BindAction("Aim", IE_Released, this, &ABlasternautCharacter::AimButtonReleased);
 	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &ABlasternautCharacter::FireButtonPressed);
 	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ABlasternautCharacter::FireButtonReleased);
+	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &ABlasternautCharacter::ReloadButtonPressed);
 
 	// Movement actions inputs
 	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ABlasternautCharacter::Jump);
@@ -239,6 +241,25 @@ void ABlasternautCharacter::PlayFireMontage(bool bAiming)
 	}
 }
 
+void ABlasternautCharacter::PlayReloadMontage()
+{
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ReloadMontage)
+	{
+		AnimInstance->Montage_Play(ReloadMontage);
+		FName SectionName;
+
+		switch (Combat->EquippedWeapon->GetWeaponType())
+		{
+		case EWeaponType::EWT_AssaultRifle:
+			SectionName = FName("Rifle");
+			break;
+		}
+	}
+}
+
 void ABlasternautCharacter::PlayElimMontage()
 {
 	
@@ -333,6 +354,14 @@ void ABlasternautCharacter::FireButtonReleased()
 	if (Combat)
 	{
 		Combat->FireButtonPressed(false);
+	}
+}
+
+void ABlasternautCharacter::ReloadButtonPressed()
+{
+	if (Combat)
+	{
+		Combat->Reload();
 	}
 }
 
@@ -565,6 +594,11 @@ void ABlasternautCharacter::Elim()
 
 void ABlasternautCharacter::MulticastElim_Implementation()
 {
+	if (BlasternautController)
+	{
+		BlasternautController->SetHUDWeaponAmmo(0);
+	}
+
 	bElimmed = true;
 
 	// Remove weapon - tmp solution for Hit and Elim Montages Collisions
@@ -630,6 +664,12 @@ void ABlasternautCharacter::OnElimTimerFinished()
 AWeapon* ABlasternautCharacter::GetEquippedWeapon() const
 {
 	return Combat == nullptr ? nullptr : Combat->EquippedWeapon;
+}
+
+ECombatState ABlasternautCharacter::GetCombatState() const
+{
+	if (Combat == nullptr) return ECombatState::ECS_MAX;
+	return Combat->CombatState;
 }
 
 FVector ABlasternautCharacter::GetHitTarget() const

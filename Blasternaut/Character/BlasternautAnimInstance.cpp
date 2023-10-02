@@ -6,6 +6,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Blasternaut/Weapon/Weapon.h"
+#include "Blasternaut/BlasternautTypes/CombatState.h"
 
 void UBlasternautAnimInstance::NativeInitializeAnimation()
 {
@@ -101,4 +102,6 @@ void UBlasternautAnimInstance::NativeUpdateAnimation(float DeltaTime)
 		//DrawDebugLine(GetWorld(), MuzzleTransform.GetLocation(), BlasternautCharacter->GetHitTarget(), FColor::Orange);
 		//
 	}
+
+	bUseFABRIK = BlasternautCharacter->GetCombatState() != ECombatState::ECS_Reloading;
 }

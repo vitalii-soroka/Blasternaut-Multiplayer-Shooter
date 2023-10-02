@@ -7,6 +7,7 @@
 #include "Blasternaut/BlasternautTypes/TurningInPlace.h"
 #include "Blasternaut/Interfaces/InteractWithCrosshairsInterface.h"
 #include "Components/TimelineComponent.h"
+#include "Blasternaut/BlasternautTypes/CombatState.h"
 #include "BlasternautCharacter.generated.h"
 
 UCLASS()
@@ -27,9 +28,10 @@ public:
 	virtual void OnRep_ReplicatedMovement() override;
 
 	// --------------- Playing Montages ---------------
-	void PlayElimMontage();
 	void PlayFireMontage(bool bAiming);
+	void PlayReloadMontage();
 	void PlayHitReactMontage();
+	void PlayElimMontage();
 
 	// --------------- Elimination and Destroying ---------------
 	void Elim();
@@ -58,6 +60,7 @@ protected:
 	void AimButtonReleased();
 	void FireButtonPressed();
 	void FireButtonReleased();
+	void ReloadButtonPressed();
 
 	// --------------- Damage ---------------
 	UFUNCTION()
@@ -91,7 +94,7 @@ private:
 	UFUNCTION()
 	void OnRep_OverlappingWeapon(AWeapon* LastWeapon);
 
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UCombatComponent* Combat;
 
 	UFUNCTION(Server, Reliable)
@@ -105,9 +108,13 @@ private:
 	ETurningInPlace TurningInPlace;
 	void TurnInPlace(float DeltaTime);
 
-
+	
+	// --------------- Montages ---------------
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	class UAnimMontage* FireWeaponMontage;
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UAnimMontage* ReloadMontage;
 
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* HitReactMontage;
@@ -203,4 +210,5 @@ public:
 	FORCEINLINE bool ShouldRotateRootBone() const { return bRotateRootBone; }
 	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return TurningInPlace; }
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+	ECombatState GetCombatState() const;
 };

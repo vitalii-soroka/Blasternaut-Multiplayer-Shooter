@@ -88,3 +88,12 @@ void ABlasternautController::SetHUDWeaponAmmo(int32 Ammo)
 		BlasternautHUD->CharacterOverlay->WeaponAmmoAmount->SetText(FText::FromString(AmmoText));
 	}
 }
+
+void ABlasternautController::SetHUDCarriedAmmo(int32 Ammo)
+{
+	if (IsOverlayValid() && BlasternautHUD->CharacterOverlay->CarriedAmmoAmount)
+	{
+		FString AmmoText = FString::Printf(TEXT("%d"), Ammo);
+		BlasternautHUD->CharacterOverlay->CarriedAmmoAmount->SetText(FText::FromString(AmmoText));
+	}
+}
