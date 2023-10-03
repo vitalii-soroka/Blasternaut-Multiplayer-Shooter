@@ -71,6 +71,9 @@ public:
 
 	void TryUpdateHUDAmmo();
 
+	UPROPERTY(EditAnywhere)
+	class USoundCue* EquipSound;
+
 protected:
 	virtual void BeginPlay() override;
 

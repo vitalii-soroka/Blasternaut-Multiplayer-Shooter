@@ -104,4 +104,6 @@ void UBlasternautAnimInstance::NativeUpdateAnimation(float DeltaTime)
 	}
 
 	bUseFABRIK = BlasternautCharacter->GetCombatState() != ECombatState::ECS_Reloading;
+	bUseAimOffsets = BlasternautCharacter->GetCombatState() != ECombatState::ECS_Reloading;
+	bTransformRightHand = BlasternautCharacter->GetCombatState() != ECombatState::ECS_Reloading;
 }

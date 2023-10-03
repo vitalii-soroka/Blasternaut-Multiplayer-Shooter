@@ -11,6 +11,7 @@
 #include "Blasternaut/PlayerController/BlasternautController.h"
 #include "Camera/CameraComponent.h"
 #include "TimerManager.h"
+#include "Sound/SoundCue.h"
 
 /**
 * --- INITIALISING AND TICK ---
@@ -152,6 +153,11 @@ void UCombatComponent::FireTimerFinished()
 	{
 		Fire();
 	}
+
+	if (EquippedWeapon->IsEmpty())
+	{
+		Reload();
+	}
 }
 
 bool UCombatComponent::CanFire()
@@ -196,15 +202,10 @@ void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& T
 */
 void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 {
-	if (Character == nullptr || WeaponToEquip == nullptr)
-	{
-		return;
-	}
-	if (EquippedWeapon)
-	{
-		EquippedWeapon->Dropped();
-	}
+	if (Character == nullptr || WeaponToEquip == nullptr) return;
 
+	if (EquippedWeapon) EquippedWeapon->Dropped();
+	
 	EquippedWeapon = WeaponToEquip;
 	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
 
@@ -225,6 +226,13 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 	Controller = Controller == nullptr ? Cast<ABlasternautController>(Character->Controller) : Controller;
 	if (Controller) Controller->SetHUDCarriedAmmo(CarriedAmmo);
 
+	PlayEquipSound();
+
+	if (EquippedWeapon->IsEmpty())
+	{
+		Reload();
+	}
+
 	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 	Character->bUseControllerRotationYaw = true;
 }
@@ -244,6 +252,20 @@ void UCombatComponent::OnRep_EquippedWeapon()
 		//
 		Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 		Character->bUseControllerRotationYaw = true;
+
+		PlayEquipSound();
+	}
+}
+
+void UCombatComponent::PlayEquipSound()
+{
+	if (EquippedWeapon->EquipSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			EquippedWeapon->EquipSound,
+			Character->GetActorLocation()
+		);
 	}
 }
 

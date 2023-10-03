@@ -7,6 +7,46 @@
 #include "GameFramework/PlayerStart.h"
 #include "Blasternaut/PlayerState/BlasternautPlayerState.h"
 
+ABlasternautGameMode::ABlasternautGameMode()
+{
+	bDelayedStart = true;
+}
+
+void ABlasternautGameMode::BeginPlay()
+{
+	Super::BeginPlay();
+	LevelStartingTime = GetWorld()->GetTimeSeconds();
+}
+
+void ABlasternautGameMode::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (MatchState == MatchState::WaitingToStart)
+	{
+		CountdownTime = LevelStartingTime + WarmupTime - GetWorld()->GetTimeSeconds();
+
+		if (CountdownTime <= 0.f)
+		{
+			StartMatch();
+		}
+	}
+}
+
+void ABlasternautGameMode::OnMatchStateSet()
+{
+	Super::OnMatchStateSet();
+
+	for (auto It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		ABlasternautController* BlasternautPlayer = Cast < ABlasternautController>(*It);
+		if (BlasternautPlayer)
+		{
+			BlasternautPlayer->OnMatchStateSet(MatchState);
+		}
+	}
+}
+
 void ABlasternautGameMode::PlayerEliminated(ABlasternautCharacter* CharacterToEliminate, ABlasternautController* VictimController, ABlasternautController* AttackerController)
 {
 	auto* AttackerPlayerState = AttackerController ? Cast<ABlasternautPlayerState>(AttackerController->PlayerState) : nullptr;
