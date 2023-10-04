@@ -32,6 +32,7 @@ public:
 	void FinishReloading();
 
 	void UpdateAmmoValues();
+	void FireButtonPressed(bool bPressed);
 
 protected:
 	virtual void BeginPlay() override;
@@ -42,8 +43,6 @@ protected:
 
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
-
-	void FireButtonPressed(bool bPressed);
 
 	void Fire();
 
@@ -130,6 +129,9 @@ private:
 	
 	UPROPERTY(EditAnywhere)
 	int32 StartingARAmmo = 30;
+
+	UPROPERTY(EditAnywhere)
+	int32 StartingRocketAmmo = 4;
 
 	void InitializeCarriedAmmo();
 

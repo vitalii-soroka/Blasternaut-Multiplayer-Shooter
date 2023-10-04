@@ -1,12 +1,12 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "BlasternautAnimInstance.h"
+
+#include "Blasternaut/BlasternautTypes/CombatState.h"
+#include "Blasternaut/Weapon/Weapon.h"
 #include "BlasternautCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
-#include "Blasternaut/Weapon/Weapon.h"
-#include "Blasternaut/BlasternautTypes/CombatState.h"
 
 void UBlasternautAnimInstance::NativeInitializeAnimation()
 {
@@ -104,6 +104,6 @@ void UBlasternautAnimInstance::NativeUpdateAnimation(float DeltaTime)
 	}
 
 	bUseFABRIK = BlasternautCharacter->GetCombatState() != ECombatState::ECS_Reloading;
-	bUseAimOffsets = BlasternautCharacter->GetCombatState() != ECombatState::ECS_Reloading;
-	bTransformRightHand = BlasternautCharacter->GetCombatState() != ECombatState::ECS_Reloading;
+	bUseAimOffsets = BlasternautCharacter->GetCombatState() != ECombatState::ECS_Reloading && !BlasternautCharacter->GetDisableGameplay();
+	bTransformRightHand = BlasternautCharacter->GetCombatState() != ECombatState::ECS_Reloading && !BlasternautCharacter->GetDisableGameplay();
 }

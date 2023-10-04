@@ -1,16 +1,19 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "BlasternautController.h"
+
+#include "Blasternaut/Character/BlasternautCharacter.h"
+#include "Blasternaut/CharacterComponents/CombatComponent.h"
+#include "Blasternaut/GameMode/BlasternautGameMode.h"
+#include "Blasternaut/HUD/Announcement.h"
 #include "Blasternaut/HUD/BlasternautHUD.h"
 #include "Blasternaut/HUD/CharacterOverlay.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
-#include "Blasternaut/Character/BlasternautCharacter.h"
-#include "Net/UnrealNetwork.h"
-#include "Blasternaut/GameMode/BlasternautGameMode.h"
-#include "Blasternaut/HUD/Announcement.h"
 #include "Kismet/GameplayStatics.h"
+#include "Net/UnrealNetwork.h"
+#include "Blasternaut/GameState/BlasternautGameState.h"
+#include "Blasternaut/PlayerState/BlasternautPlayerState.h"
 
 void ABlasternautController::BeginPlay()
 {
@@ -84,19 +87,21 @@ void ABlasternautController::ServerCheckMatchState_Implementation()
 	auto* GameMode = Cast<ABlasternautGameMode>(UGameplayStatics::GetGameMode(this));
 	if (GameMode)
 	{
+		MatchState = GameMode->GetMatchState();
 		WarmupTime = GameMode->WarmupTime;
 		MatchTime = GameMode->MatchTime;
+		CooldownTime = GameMode->CooldownTime;
 		LevelStartingTime = GameMode->LevelStartingTime;
-		MatchState = GameMode->GetMatchState();
-		ClientJoinMidgame(MatchState, WarmupTime, MatchTime, LevelStartingTime);
+		ClientJoinMidgame(MatchState, WarmupTime, MatchTime, CooldownTime, LevelStartingTime);
 	}
 }
 
-void ABlasternautController::ClientJoinMidgame_Implementation(FName StateOfMatch, float Warmup, float Match, float StartingTime)
+void ABlasternautController::ClientJoinMidgame_Implementation(FName StateOfMatch, float Warmup, float Match, float Cooldown, float StartingTime)
 {
 	MatchState = StateOfMatch;
 	WarmupTime = Warmup;
 	MatchTime = Match;
+	CooldownTime = Cooldown;
 	LevelStartingTime = StartingTime;
 
 	OnMatchStateSet(MatchState);
@@ -129,6 +134,10 @@ void ABlasternautController::OnMatchStateSet(FName State)
 	{
 		HandleMatchHasStarted();
 	}
+	else if (MatchState == MatchState::Cooldown)
+	{
+		HandleCooldown();
+	}
 }
 
 void ABlasternautController::OnRep_MatchState()
@@ -137,18 +146,78 @@ void ABlasternautController::OnRep_MatchState()
 	{
 		HandleMatchHasStarted();
 	}
+	else if (MatchState == MatchState::Cooldown)
+	{
+		HandleCooldown();
+	}
 }
 
 void ABlasternautController::HandleMatchHasStarted()
 {
 	if (TrySetHUD())
 	{
-		BlasternautHUD->AddCharacterOverlay();
+		if (BlasternautHUD->CharacterOverlay == nullptr) BlasternautHUD->AddCharacterOverlay();
 
 		if (BlasternautHUD->Announcement)
 		{
 			BlasternautHUD->Announcement->SetVisibility(ESlateVisibility::Hidden);
 		}
+	}
+}
+
+void ABlasternautController::HandleCooldown()
+{
+	if (TrySetHUD())
+	{
+		BlasternautHUD->CharacterOverlay->RemoveFromParent();
+
+		if (BlasternautHUD->Announcement && 
+			BlasternautHUD->Announcement->AnnouncementText &&
+			BlasternautHUD->Announcement->InfoText)
+		{
+			BlasternautHUD->Announcement->SetVisibility(ESlateVisibility::Visible);
+			FString AnnouncementText("New Match Starts In:");
+			BlasternautHUD->Announcement->AnnouncementText->SetText(FText::FromString(AnnouncementText));
+			
+			auto* BlasternautGameState = Cast<ABlasternautGameState>(UGameplayStatics::GetGameState(this));
+			auto* BlasternautPlayerState = GetPlayerState<ABlasternautPlayerState>();
+
+			if (BlasternautGameState && BlasternautPlayerState)
+			{ 
+				auto TopPlayers = BlasternautGameState->TopScoringPlayers;
+				FString InfoTextString;
+
+				if (TopPlayers.Num() == 0)
+				{
+					InfoTextString = FString("There is no winner");
+				}
+				else if (TopPlayers.Num() == 1 && TopPlayers[0] == BlasternautPlayerState)
+				{
+					InfoTextString = FString("You are the winner");
+				}
+				else if (TopPlayers.Num() == 1)
+				{
+					InfoTextString = FString::Printf(TEXT("Winner: \n%s"), *TopPlayers[0]->GetPlayerName());
+				}
+				else if (TopPlayers.Num() > 1)
+				{
+					InfoTextString = FString("Players tied for the win:\n");
+					for (auto TiedPlayers : TopPlayers)
+					{
+						InfoTextString.Append(FString::Printf(TEXT("%s\n"), *TiedPlayers->GetPlayerName()));
+					}
+				}
+
+				BlasternautHUD->Announcement->InfoText->SetText(FText::FromString(InfoTextString));
+			}
+		}
+	}
+
+	auto* BlasternautCharacter = Cast<ABlasternautCharacter>(GetPawn());
+	if (BlasternautCharacter && BlasternautCharacter->GetCombat())
+	{
+		BlasternautCharacter->bDisableGameplay = true;
+		BlasternautCharacter->GetCombat()->FireButtonPressed(false);
 	}
 }
 
@@ -243,6 +312,12 @@ void ABlasternautController::SetHUDMatchCountdown(float CountdownTime)
 
 	if (IsOverlayValid() && BlasternautHUD->CharacterOverlay->MatchCountdownText)
 	{
+		if (CountdownTime < 0.f)
+		{
+			BlasternautHUD->CharacterOverlay->MatchCountdownText->SetText(FText());
+			return;
+		}
+
 		int32 Minutes = FMath::FloorToInt(CountdownTime / 60.f );
 		int32 Seconds = CountdownTime - 60 * Minutes;
 
@@ -255,6 +330,12 @@ void ABlasternautController::SetHUDAnnouncementCountDown(float CountdownTime)
 {
 	if (TrySetHUD() && BlasternautHUD->Announcement && BlasternautHUD->Announcement->WarmupTime)
 	{
+		if (CountdownTime < 0.f)
+		{
+			BlasternautHUD->Announcement->WarmupTime->SetText(FText());
+			return;
+		}
+
 		int32 Minutes = FMath::FloorToInt(CountdownTime / 60.f);
 		int32 Seconds = CountdownTime - 60 * Minutes;
 
@@ -269,18 +350,34 @@ void ABlasternautController::SetHUDTime()
 
 	if (MatchState == MatchState::WaitingToStart) TimeLeft = WarmupTime - GetServerTime() + LevelStartingTime;
 	else if (MatchState == MatchState::InProgress) TimeLeft = WarmupTime + MatchTime - GetServerTime() + LevelStartingTime;
-
+	else if (MatchState == MatchState::Cooldown) TimeLeft = CooldownTime + WarmupTime + MatchTime - GetServerTime() + LevelStartingTime;
+	
 	uint32 SecondsLeft = FMath::CeilToInt(TimeLeft);
 
+	//
+	if (HasAuthority())
+	{
+		BlasternautGameMode = BlasternautGameMode == nullptr ? Cast<ABlasternautGameMode>(UGameplayStatics::GetGameMode(this)) : BlasternautGameMode;
+		if (BlasternautGameMode)
+		{
+			SecondsLeft = FMath::CeilToInt(BlasternautGameMode->GetCountdownTime() + LevelStartingTime);
+		}
+	}
+	
+	// Update HUD Timer every second
 	if (CountdownInt != SecondsLeft)
 	{
-		if (MatchState == MatchState::WaitingToStart)
+		if (MatchState == MatchState::WaitingToStart || MatchState == MatchState::Cooldown)
 		{
 			SetHUDAnnouncementCountDown(TimeLeft);
 		}
 		else if (MatchState == MatchState::InProgress)
 		{
 			SetHUDMatchCountdown(TimeLeft);
+		}
+		else if (MatchState == MatchState::Cooldown)
+		{
+
 		}
 	}
 

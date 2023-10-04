@@ -1,11 +1,18 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "BlasternautGameMode.h"
+
 #include "Blasternaut/Character/BlasternautCharacter.h"
+#include "Blasternaut/GameState/BlasternautGameState.h"
 #include "Blasternaut/PlayerController/BlasternautController.h"
-#include "Kismet/GameplayStatics.h"
-#include "GameFramework/PlayerStart.h"
 #include "Blasternaut/PlayerState/BlasternautPlayerState.h"
+#include "GameFramework/PlayerStart.h"
+#include "Kismet/GameplayStatics.h"
+
+namespace MatchState
+{
+	const FName Cooldown = FName("Cooldown");
+}
 
 ABlasternautGameMode::ABlasternautGameMode()
 {
@@ -31,6 +38,24 @@ void ABlasternautGameMode::Tick(float DeltaTime)
 			StartMatch();
 		}
 	}
+	else if (MatchState == MatchState::InProgress)
+	{
+		CountdownTime = WarmupTime + MatchTime - GetWorld()->GetTimeSeconds();
+
+		if (CountdownTime <= 0.f)
+		{
+			SetMatchState(MatchState::Cooldown);
+		}
+	}
+	else if (MatchState == MatchState::Cooldown)
+	{
+		CountdownTime = CooldownTime + WarmupTime + MatchTime - GetWorld()->GetTimeSeconds() + LevelStartingTime;
+
+		if (CountdownTime <= 0.f)
+		{
+			RestartGame();
+		}
+	}
 }
 
 void ABlasternautGameMode::OnMatchStateSet()
@@ -52,9 +77,12 @@ void ABlasternautGameMode::PlayerEliminated(ABlasternautCharacter* CharacterToEl
 	auto* AttackerPlayerState = AttackerController ? Cast<ABlasternautPlayerState>(AttackerController->PlayerState) : nullptr;
 	auto* VictimPlayerState = VictimController ? Cast<ABlasternautPlayerState>(VictimController->PlayerState) : nullptr;
 
-	if (AttackerPlayerState && AttackerPlayerState != VictimPlayerState)
+	auto* BlasternautGameState = GetGameState<ABlasternautGameState>();
+
+	if (AttackerPlayerState && AttackerPlayerState != VictimPlayerState && BlasternautGameState)
 	{
 		AttackerPlayerState->AddToScore(1.f);
+		BlasternautGameState->UpdateTopScore(AttackerPlayerState);
 	}
 
 	if (VictimPlayerState)

@@ -1,27 +1,27 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "BlasternautCharacter.h"
-#include "GameFramework/SpringArmComponent.h"
-#include "Camera/CameraComponent.h"
-#include "GameFramework/CharacterMovementComponent.h"
-#include "Components/WidgetComponent.h"
-#include "Net/UnrealNetwork.h"
-#include "Blasternaut/Weapon/Weapon.h"
-#include "Blasternaut/CharacterComponents/CombatComponent.h"
-#include "Components/CapsuleComponent.h"
-#include "Kismet/KismetMathLibrary.h"
-#include "BlasternautAnimInstance.h"
+
 #include "Blasternaut/Blasternaut.h"
-#include "Blasternaut/PlayerController/BlasternautController.h"
+#include "Blasternaut/CharacterComponents/CombatComponent.h"
 #include "Blasternaut/GameMode/BlasternautGameMode.h"
-#include "Components/SkeletalMeshComponent.h"
-#include "TimerManager.h"
-#include "Kismet/GameplayStatics.h"
-#include "Sound/SoundCue.h"
-#include "Particles/ParticleSystemComponent.h"
+#include "Blasternaut/PlayerController/BlasternautController.h"
 #include "Blasternaut/PlayerState/BlasternautPlayerState.h"
+#include "Blasternaut/Weapon/Weapon.h"
 #include "Blasternaut/Weapon/WeaponTypes.h"
+#include "BlasternautAnimInstance.h"
+#include "Camera/CameraComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/WidgetComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/SpringArmComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetMathLibrary.h"
+#include "Net/UnrealNetwork.h"
+#include "Particles/ParticleSystemComponent.h"
+#include "Sound/SoundCue.h"
+#include "TimerManager.h"
 
 //
 // ------------------- Init and Tick -------------------
@@ -89,6 +89,7 @@ void ABlasternautCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 
 	DOREPLIFETIME_CONDITION(ABlasternautCharacter, OverlappingWeapon, COND_OwnerOnly);
 	DOREPLIFETIME(ABlasternautCharacter, Health);
+	DOREPLIFETIME(ABlasternautCharacter, bDisableGameplay);
 }
 
 void ABlasternautCharacter::PostInitializeComponents()
@@ -129,20 +130,7 @@ void ABlasternautCharacter::Tick(float DeltaTime)
 
 	PollInit();
 
-	if (GetLocalRole() > ENetRole::ROLE_SimulatedProxy && IsLocallyControlled())
-	{
-		AimOffset(DeltaTime);
-	}
-	else
-	{
-		TimeSinceLastMoveReplication += DeltaTime;
-
-		if (TimeSinceLastMoveReplication > 0.25f)
-		{
-			OnRep_ReplicatedMovement();
-		}
-		CalculateAO_Pitch();
-	}
+	RotateInPlace(DeltaTime);
 
 	HideCameraInCharacter();
 }
@@ -155,6 +143,14 @@ void ABlasternautCharacter::Destroyed()
 	{
 		ElimBotComponent->DestroyComponent();
 	}
+
+	auto* BlasternautGameMode = Cast<ABlasternautGameMode>(UGameplayStatics::GetGameMode(this));
+	bool bMatchIsNotInProgress = BlasternautGameMode && BlasternautGameMode->GetMatchState() != MatchState::InProgress;
+
+	if (Combat && Combat->EquippedWeapon && bMatchIsNotInProgress)
+	{
+		Combat->EquippedWeapon->Destroy();
+	}
 }
 
 //
@@ -162,6 +158,8 @@ void ABlasternautCharacter::Destroyed()
 //
 void ABlasternautCharacter::MoveForward(float Value)
 {
+	if (bDisableGameplay) return;
+
 	if (Controller != nullptr && Value != 0.f)
 	{
 		const FRotator YawRotation(0.f, Controller->GetControlRotation().Yaw, 0.f);
@@ -172,6 +170,8 @@ void ABlasternautCharacter::MoveForward(float Value)
 
 void ABlasternautCharacter::MoveRight(float Value)
 {
+	if (bDisableGameplay) return;
+
 	if (Controller != nullptr && Value != 0.f)
 	{
 		const FRotator YawRotation(0.f, Controller->GetControlRotation().Yaw, 0.f);
@@ -215,6 +215,8 @@ void ABlasternautCharacter::TurnInPlace(float DeltaTime)
 
 void ABlasternautCharacter::Jump()
 {
+	if (bDisableGameplay) return;
+
 	if (bIsCrouched)
 	{
 		UnCrouch();
@@ -222,6 +224,31 @@ void ABlasternautCharacter::Jump()
 	else
 	{
 		Super::Jump();
+	}
+}
+
+void ABlasternautCharacter::RotateInPlace(float DeltaTime)
+{
+	if (bDisableGameplay)
+	{
+		bUseControllerRotationYaw = false;
+		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+		return;
+	}
+
+	if (GetLocalRole() > ENetRole::ROLE_SimulatedProxy && IsLocallyControlled())
+	{
+		AimOffset(DeltaTime);
+	}
+	else
+	{
+		TimeSinceLastMoveReplication += DeltaTime;
+
+		if (TimeSinceLastMoveReplication > 0.25f)
+		{
+			OnRep_ReplicatedMovement();
+		}
+		CalculateAO_Pitch();
 	}
 }
 
@@ -299,6 +326,8 @@ void ABlasternautCharacter::PlayHitReactMontage()
 //
 void ABlasternautCharacter::AimButtonPressed()
 {
+	if (bDisableGameplay) return;
+
 	//if (Combat) ***
 	if (IsWeaponEquipped())
 	{
@@ -308,6 +337,8 @@ void ABlasternautCharacter::AimButtonPressed()
 
 void ABlasternautCharacter::AimButtonReleased()
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		Combat->SetAiming(false);
@@ -316,6 +347,8 @@ void ABlasternautCharacter::AimButtonReleased()
 
 void ABlasternautCharacter::EquipButtonPressed()
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		if (HasAuthority())
@@ -331,6 +364,8 @@ void ABlasternautCharacter::EquipButtonPressed()
 
 void ABlasternautCharacter::CrouchButtonPressed()
 {
+	if (bDisableGameplay) return;
+
 	if (bIsCrouched)
 	{
 		UnCrouch();
@@ -343,6 +378,8 @@ void ABlasternautCharacter::CrouchButtonPressed()
 
 void ABlasternautCharacter::FireButtonPressed()
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		Combat->FireButtonPressed(true);
@@ -351,6 +388,8 @@ void ABlasternautCharacter::FireButtonPressed()
 
 void ABlasternautCharacter::FireButtonReleased()
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		Combat->FireButtonPressed(false);
@@ -359,6 +398,8 @@ void ABlasternautCharacter::FireButtonReleased()
 
 void ABlasternautCharacter::ReloadButtonPressed()
 {
+	if (bDisableGameplay) return;
+
 	if (Combat)
 	{
 		Combat->Reload();
@@ -395,7 +436,6 @@ void ABlasternautCharacter::OnRep_Health()
 	UpdateHUDHealth();
 	PlayHitReactMontage();
 }
-
 
 //
 // ------------------- To Sort -------------------
@@ -445,6 +485,8 @@ void ABlasternautCharacter::PollInit()
 		}
 	}
 }
+
+
 
 void ABlasternautCharacter::AimOffset(float DeltaTime)
 {
@@ -575,6 +617,9 @@ float ABlasternautCharacter::CalculateSpeed()
 	return Velocity.Size();
 }
 
+//
+// ------------------- Elim -------------------
+//
 void ABlasternautCharacter::Elim()
 {
 	if (Combat && Combat->EquippedWeapon)
@@ -590,6 +635,15 @@ void ABlasternautCharacter::Elim()
 		&ABlasternautCharacter::OnElimTimerFinished,
 		ElimDelay
 	);
+}
+
+void ABlasternautCharacter::OnElimTimerFinished()
+{
+	auto* GameMode = GetWorld()->GetAuthGameMode<ABlasternautGameMode>();
+	if (GameMode)
+	{
+		GameMode->RequestRespawn(this, Controller);
+	}
 }
 
 void ABlasternautCharacter::MulticastElim_Implementation()
@@ -608,9 +662,16 @@ void ABlasternautCharacter::MulticastElim_Implementation()
 	PlayElimMontage();
 
 	// Movement disable
+	//GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->DisableMovement();
-	GetCharacterMovement()->StopMovementImmediately();
-	if (BlasternautController) DisableInput(BlasternautController);
+	bDisableGameplay = true;
+
+	if (Combat)
+	{
+		Combat->FireButtonPressed(false);
+	}
+
+	//if (BlasternautController) DisableInput(BlasternautController);
 
 	// Disable collision
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -649,21 +710,33 @@ void ABlasternautCharacter::MulticastElim_Implementation()
 	}
 }
 
-void ABlasternautCharacter::OnElimTimerFinished()
-{
-	auto* GameMode = GetWorld()->GetAuthGameMode<ABlasternautGameMode>();
-	if (GameMode)
-	{
-		GameMode->RequestRespawn(this, Controller);
-	}
-}
-
 //
 // ------------------- GET - SET - CHECK -------------------
 //
+
 AWeapon* ABlasternautCharacter::GetEquippedWeapon() const
 {
 	return Combat == nullptr ? nullptr : Combat->EquippedWeapon;
+}
+
+void ABlasternautCharacter::SetOverlappingWeapon(AWeapon* Weapon)
+{
+	// for host
+	if (OverlappingWeapon && IsLocallyControlled())
+	{
+		OverlappingWeapon->ShowPickupWidget(false);
+	}
+
+	OverlappingWeapon = Weapon;
+
+	// Player controlled by host
+	if (IsLocallyControlled())
+	{
+		if (OverlappingWeapon)
+		{
+			OverlappingWeapon->ShowPickupWidget(true);
+		}
+	}
 }
 
 ECombatState ABlasternautCharacter::GetCombatState() const
@@ -696,26 +769,6 @@ void ABlasternautCharacter::StartDissolve()
 	}
 }
 
-void ABlasternautCharacter::SetOverlappingWeapon(AWeapon* Weapon)
-{
-	// for host
-	if (OverlappingWeapon && IsLocallyControlled())
-	{
-		OverlappingWeapon->ShowPickupWidget(false);
-	}
-
-	OverlappingWeapon = Weapon;
-
-	// Player controlled by host
-	if (IsLocallyControlled())
-	{
-		if (OverlappingWeapon)
-		{
-			OverlappingWeapon->ShowPickupWidget(true);
-		}
-	}
-}
-
 bool ABlasternautCharacter::IsWeaponEquipped()
 {
 	return (Combat && Combat->EquippedWeapon);
@@ -725,10 +778,3 @@ bool ABlasternautCharacter::IsAiming()
 {
 	return (Combat && Combat->bIsAiming);
 }
-
-//void ABlasternautCharacter::MulticastHit_Implementation()
-//{
-//	PlayHitReactMontage();
-//}
-
-

@@ -1,7 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "BlasternautPlayerState.h"
+
 #include "Blasternaut/Character/BlasternautCharacter.h"
 #include "Blasternaut/PlayerController/BlasternautController.h"
 #include "Net/UnrealNetwork.h"

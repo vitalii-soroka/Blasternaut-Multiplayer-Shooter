@@ -32,6 +32,7 @@ public:
 	void OnMatchStateSet(FName State);
 
 	void HandleMatchHasStarted();
+	void HandleCooldown();
 
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
@@ -65,7 +66,13 @@ protected:
 	void ServerCheckMatchState();
 
 	UFUNCTION(Client, Reliable)
-	void ClientJoinMidgame(FName StateOfMatch, float Warmup, float Match, float StartingTime);
+	void ClientJoinMidgame(
+		FName StateOfMatch, 
+		float Warmup, 
+		float Match, 
+		float Cooldown, 
+		float StartingTime
+	);
 
 private:
 	bool TrySetHUD();
@@ -76,10 +83,14 @@ private:
 	UPROPERTY()
 	class ABlasternautHUD* BlasternautHUD = nullptr;
 
+	UPROPERTY()
+	class ABlasternautGameMode* BlasternautGameMode;
+
 	// temp - move to gamemode in future
 	float LevelStartingTime = 0.f;
 	float MatchTime = 0.f;
 	float WarmupTime = 0.f;
+	float CooldownTime = 0.f;
 
 	uint32 CountdownInt = 0;
 

@@ -11,6 +11,13 @@ class ABlasternautController;
 /**
  * 
  */
+
+namespace MatchState
+{
+	// Match duration has been reached. Display info and begin cooldown timer.
+	extern BLASTERNAUT_API const FName Cooldown; 
+}
+
 UCLASS()
 class BLASTERNAUT_API ABlasternautGameMode : public AGameMode
 {
@@ -38,6 +45,9 @@ public:
 	UPROPERTY(EditDefaultsOnly)
 	float MatchTime = 120.f;
 
+	UPROPERTY(EditDefaultsOnly)
+	float CooldownTime = 10.f;
+
 	float LevelStartingTime = 0.f;
 
 protected:
@@ -47,4 +57,7 @@ protected:
 
 private:
 	float CountdownTime = 0.f;
+
+public:
+	FORCEINLINE float GetCountdownTime() const { return CountdownTime; }
 };
