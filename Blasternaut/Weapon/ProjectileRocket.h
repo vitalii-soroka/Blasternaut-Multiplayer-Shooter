@@ -17,9 +17,10 @@ class BLASTERNAUT_API AProjectileRocket : public AProjectile
 public:
 	AProjectileRocket();
 
-
+	virtual void Destroyed() override;
 
 protected:
+	virtual void BeginPlay() override;
 	virtual void OnHit(
 		UPrimitiveComponent* HitComp,
 		AActor* OtherActor,
@@ -28,13 +29,21 @@ protected:
 		const FHitResult& Hit
 	) override;
 
-private:
+
+
+
+	UPROPERTY(EditAnywhere)
+	USoundCue* ProjectileLoop;
+
+	UPROPERTY()
+	UAudioComponent* ProjectileLoopComponent;
+
+	UPROPERTY(EditAnywhere)
+	USoundAttenuation* LoopingSoundAttenuation;
+
 	UPROPERTY(VisibleAnywhere)
-	UStaticMeshComponent* RocketMesh;
+	class URocketMovementComponent* RocketMovementComponent;
 
-	UPROPERTY(EditDefaultsOnly)
-	float DamageOuterRadius = 200.f;
+private:
 
-	UPROPERTY(EditDefaultsOnly)
-	float DamageInnerRadius = 500.f;
 };

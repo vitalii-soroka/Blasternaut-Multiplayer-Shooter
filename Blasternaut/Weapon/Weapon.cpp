@@ -11,11 +11,13 @@
 #include "Engine/SkeletalMeshSocket.h"
 #include "Casing.h"
 #include "Blasternaut/PlayerController/BlasternautController.h"
+#include "Blasternaut/CharacterComponents/CombatComponent.h"
 
 AWeapon::AWeapon()
 {
 	PrimaryActorTick.bCanEverTick = false;
 	bReplicates = true;
+	SetReplicateMovement(true);
 
 	WeaponMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMesh"));
 	SetRootComponent(WeaponMesh);
@@ -23,6 +25,10 @@ AWeapon::AWeapon()
 	WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Block);
 	WeaponMesh->SetCollisionResponseToChannel(ECollisionChannel::ECC_Pawn, ECollisionResponse::ECR_Ignore);
 	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	WeaponMesh->SetCustomDepthStencilValue(CUSTOM_DEPTH_BLUE);
+	WeaponMesh->MarkRenderStateDirty(); // refresh
+	EnableCustomDepth(true);
 
 	AreaSphere = CreateDefaultSubobject<USphereComponent>(TEXT("AreaSphere"));
 	AreaSphere->SetupAttachment(RootComponent);
@@ -35,11 +41,18 @@ AWeapon::AWeapon()
 	PickupWidget->SetupAttachment(RootComponent);
 }
 
+void AWeapon::EnableCustomDepth(bool bEnabled)
+{
+	if (WeaponMesh)
+	{
+		WeaponMesh->SetRenderCustomDepth(bEnabled);
+	}
+}
+
 void AWeapon::BeginPlay()
 {
 	Super::BeginPlay();
 
-	//if (GetLocalRole() == ENetRole::ROLE_Authority)
 	if (HasAuthority())
 	{
 		AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -51,6 +64,33 @@ void AWeapon::BeginPlay()
 	if (PickupWidget)
 	{
 		PickupWidget->SetVisibility(false);
+	}
+
+	// temp moved, animation montages names
+	switch (WeaponType)
+	{
+	case EWeaponType::EWT_AssaultRifle:
+		WeaponNameType = FName("Rifle");
+		break;
+	case EWeaponType::EWT_RocketLauncher:
+		WeaponNameType = FName("RocketLauncher");
+		break;
+	case EWeaponType::EWT_Pistol:
+		WeaponNameType = FName("Pistol");
+		break;
+	case EWeaponType::EWT_SubmachineGun:
+		WeaponNameType = FName("Pistol"); 
+		break;
+	case EWeaponType::EWT_Shotgun:
+		WeaponNameType = FName("Shotgun"); 
+		break;
+	case EWeaponType::EWT_SniperRifle:
+		WeaponNameType = FName("SniperRifle"); 
+		break;
+	case EWeaponType::EWT_GrenadeLauncher:
+		WeaponNameType = FName("GrenadeLauncher"); 
+		break;
+	default: WeaponNameType = FName("Rifle");
 	}
 }
 
@@ -79,7 +119,13 @@ void AWeapon::OnRep_Owner()
 	}
 	else
 	{
-		TryUpdateHUDAmmo();
+		OwnerCharacter = OwnerCharacter == nullptr ? Cast <ABlasternautCharacter>(Owner) : OwnerCharacter;
+
+		if (OwnerCharacter && OwnerCharacter->GetEquippedWeapon() == this/* OwnerCharacter->GetEquippedWeapon() && */)
+		{
+			TryUpdateHUDAmmo();
+		}
+		
 	}
 }
 
@@ -114,18 +160,26 @@ void AWeapon::SetWeaponPhysics(bool Enable)
 	);
 }
 
-void AWeapon::OnRep_WeaponState()
+void AWeapon::SetSpecialWeaponPhysics(bool Enable)
 {
-	switch (WeaponState)
+
+	if (Enable)
 	{
-	case EWeaponState::EWS_Equipped:
-		ShowPickupWidget(false);
-		//AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		SetWeaponPhysics(false);
-		break;
-	case EWeaponState::EWS_Dropped:
-		SetWeaponPhysics(true);
-		break;
+		if (WeaponType == EWeaponType::EWT_SubmachineGun)
+		{
+			WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			WeaponMesh->SetEnableGravity(true);
+			WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
+		}
+	}
+	else
+	{
+		if (WeaponType == EWeaponType::EWT_SubmachineGun)
+		{
+			WeaponMesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Block);
+			WeaponMesh->SetCollisionResponseToChannel(ECollisionChannel::ECC_Pawn, ECollisionResponse::ECR_Ignore);
+			WeaponMesh->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+		}
 	}
 }
 
@@ -138,6 +192,10 @@ void AWeapon::SpendRound()
 void AWeapon::OnRep_Ammo()
 {
 	TryUpdateHUDAmmo();
+	if (OwnerCharacter && OwnerCharacter->GetCombat() && IsFull())
+	{
+		OwnerCharacter->GetCombat()->JumpToShotgunEnd();
+	}
 }
 
 void AWeapon::TryUpdateHUDAmmo()
@@ -153,24 +211,84 @@ void AWeapon::TryUpdateHUDAmmo()
 	}
 }
 
+void AWeapon::UpdateOutlineColor(int DepthValue)
+{
+	if (WeaponMesh) 
+	{
+		WeaponMesh->SetCustomDepthStencilValue(DepthValue);
+		WeaponMesh->MarkRenderStateDirty();
+		EnableCustomDepth(true);
+	}
+}
+
 void AWeapon::SetWeaponState(EWeaponState State)
 {
 	WeaponState = State;
+
+	OnWeaponStateSet();
+}
+
+void AWeapon::OnWeaponStateSet()
+{
 	switch (WeaponState)
 	{
 	case EWeaponState::EWS_Equipped:
-		ShowPickupWidget(false);
-		AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		SetWeaponPhysics(false);
+		HandleEquippedState();
+		break;
+	case EWeaponState::EWS_EquippedSecondary:
+		HandleEquippedSecondaryState();
 		break;
 	case EWeaponState::EWS_Dropped:
-		if (HasAuthority())
-		{
-			AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-		}
-		SetWeaponPhysics(true);
+		HandleDroppedState();
 		break;
-	}	
+	}
+}
+
+void AWeapon::OnRep_WeaponState()
+{
+	switch (WeaponState)
+	{
+	case EWeaponState::EWS_Equipped:
+		HandleEquippedState();
+		break;
+	case EWeaponState::EWS_EquippedSecondary:
+		HandleEquippedSecondaryState();
+		break;
+	case EWeaponState::EWS_Dropped:
+		HandleDroppedState();
+		break;
+	}
+}
+
+void AWeapon::HandleEquippedState()
+{
+	if (HasAuthority()) AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	ShowPickupWidget(false);
+	SetWeaponPhysics(false);
+	SetSpecialWeaponPhysics(true);
+	EnableCustomDepth(false);
+}
+
+void AWeapon::HandleDroppedState()
+{
+	if (HasAuthority()) AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+
+	SetWeaponPhysics(true);
+	SetSpecialWeaponPhysics(false);
+	UpdateOutlineColor(CUSTOM_DEPTH_BLUE);
+}
+
+void AWeapon::HandleEquippedSecondaryState()
+{
+	if (HasAuthority()) AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	ShowPickupWidget(false);
+	SetWeaponPhysics(false);
+	SetSpecialWeaponPhysics(true);
+	EnableCustomDepth(true);
+	UpdateOutlineColor(CUSTOM_DEPTH_TAN);
+
 }
 
 void AWeapon::ShowPickupWidget(bool bShowWidget)
@@ -187,6 +305,7 @@ void AWeapon::Fire(const FVector& HitTarget)
 	{
 		WeaponMesh->PlayAnimation(FireAnimation, false);
 	}
+
 	if (CasingClass)
 	{
 		const USkeletalMeshSocket* AmmoEjectSocket = WeaponMesh->GetSocketByName(FName("AmmoEject"));
@@ -206,6 +325,7 @@ void AWeapon::Fire(const FVector& HitTarget)
 			}
 		}
 	}
+
 	SpendRound();
 }
 

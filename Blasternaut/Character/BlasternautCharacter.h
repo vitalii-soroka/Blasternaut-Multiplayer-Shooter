@@ -32,6 +32,7 @@ public:
 	void PlayReloadMontage();
 	void PlayHitReactMontage();
 	void PlayElimMontage();
+	void PlayThrowGrenadeMontage();
 
 	// --------------- Elimination and Destroying ---------------
 	void Elim();
@@ -42,6 +43,17 @@ public:
 
 	UPROPERTY(Replicated)
 	bool bDisableGameplay = false;
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void ShowSniperScopeWidget(bool bShowScope);
+
+	// --------------- HUD ---------------
+	void UpdateHUDHealth();
+	void UpdateHUDShield();
+	void UpdateHUDAmmo();
+
+	// --------------- DefaultWeapon ---------------
+	void SpawnDefaultWeapon();
 
 protected:
 	virtual void BeginPlay() override;
@@ -64,6 +76,7 @@ protected:
 	void FireButtonPressed();
 	void FireButtonReleased();
 	void ReloadButtonPressed();
+	void ThrowGrenadeButtonPressed();
 
 	// --------------- Damage ---------------
 	UFUNCTION()
@@ -75,12 +88,13 @@ protected:
 		AActor* DamageCauser
 	);
 
-	// --------------- HUD ---------------
-	void UpdateHUDHealth();
-
 	// Poll for any relevant classes and initialize class
 	void PollInit();
 	void RotateInPlace(float DeltaTime);
+
+	// --------------- Grenade ---------------
+	UPROPERTY(VisibleAnywhere)
+	UStaticMeshComponent* AttachedGrenade;
 
 private:
 	UPROPERTY(VisibleAnywhere, Category = Camera)
@@ -100,6 +114,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UCombatComponent* Combat;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
+	class UBuffComponent* Buff;
 
 	UFUNCTION(Server, Reliable)
 	void ServerEquipButtonPressed();
@@ -126,6 +143,9 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* ElimMontage;
 
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UAnimMontage* ThrowGrenadeMontage;
+
 	void HideCameraInCharacter();
 
 	UPROPERTY(EditAnywhere)
@@ -150,7 +170,17 @@ private:
 	float Health = 100.f;
 
 	UFUNCTION()
-	void OnRep_Health();
+	void OnRep_Health(float LastHealth);
+
+	// --------------- Player Shield ---------------
+	UPROPERTY(EditAnywhere, Category = "Player Stats")
+	float MaxShield = 100.f;
+
+	UPROPERTY(ReplicatedUsing = OnRep_Shield, EditAnywhere, Category = "Player Stats")
+	float Shield = 20.f;
+
+	UFUNCTION()
+	void OnRep_Shield(float LastShield);
 
 	UPROPERTY()
 	class ABlasternautController* BlasternautController;
@@ -196,6 +226,13 @@ private:
 	UPROPERTY()
 	class ABlasternautPlayerState* BlasternautPlayerState = nullptr;
 
+	// --------------- Default Weapon ---------------
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<AWeapon> DefaultWeaponClass;
+
+	void HandleWeaponsOnElim();
+	void HandleWeaponOnElim(AWeapon* Weapon);
+
 public:
 	bool IsAiming();
 	bool IsWeaponEquipped();
@@ -208,7 +245,11 @@ public:
 	FORCEINLINE float GetAO_Pitch() const { return AO_Pitch; }
 
 	FORCEINLINE float GetHealth() const { return Health; }
+	FORCEINLINE void SetHealth(float HealthToSet) { Health = HealthToSet; }
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
+	FORCEINLINE float GetShield() const { return Shield; }
+	FORCEINLINE float GetMaxShield() const { return MaxShield; }
+	FORCEINLINE void SetShield(float Amount) { Shield = Amount; }
 	FORCEINLINE bool IsElimmed() const { return bElimmed; }
 
 	FORCEINLINE bool ShouldRotateRootBone() const { return bRotateRootBone; }
@@ -218,4 +259,9 @@ public:
 
 	FORCEINLINE UCombatComponent* GetCombat() const { return Combat; }
 	FORCEINLINE bool GetDisableGameplay() const { return bDisableGameplay; }
+	
+	FORCEINLINE UAnimMontage* GetReloadMontage() const { return ReloadMontage; }
+	FORCEINLINE UStaticMeshComponent* GetAttachedGrenade() const { return AttachedGrenade; }
+
+	FORCEINLINE UBuffComponent* GetBuff() const { return Buff; }
 };

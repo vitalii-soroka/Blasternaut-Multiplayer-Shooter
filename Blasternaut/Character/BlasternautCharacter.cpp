@@ -4,6 +4,7 @@
 
 #include "Blasternaut/Blasternaut.h"
 #include "Blasternaut/CharacterComponents/CombatComponent.h"
+#include "Blasternaut/CharacterComponents/BuffComponent.h"
 #include "Blasternaut/GameMode/BlasternautGameMode.h"
 #include "Blasternaut/PlayerController/BlasternautController.h"
 #include "Blasternaut/PlayerState/BlasternautPlayerState.h"
@@ -32,6 +33,7 @@ ABlasternautCharacter::ABlasternautCharacter()
 
 	SpawnCollisionHandlingMethod = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
+	// Camera Setup
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(GetMesh());
 	CameraBoom->TargetArmLength = 600.0f;
@@ -44,11 +46,15 @@ ABlasternautCharacter::ABlasternautCharacter()
 	bUseControllerRotationYaw = false;
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 
+	//
 	OverheadWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("OverheadWidget"));
 	OverheadWidget->SetupAttachment(RootComponent);
 
 	Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("CombatComponent"));
 	Combat->SetIsReplicated(true);
+
+	Buff = CreateDefaultSubobject<UBuffComponent>(TEXT("BuffsComponent"));
+	Buff->SetIsReplicated(true);
 
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 
@@ -68,18 +74,31 @@ ABlasternautCharacter::ABlasternautCharacter()
 	MinNetUpdateFrequency = 33.f;
 
 	DissolveTimeline = CreateDefaultSubobject<UTimelineComponent>(TEXT("DissolveTimelineComponent"));
+
+	// Grenade
+	AttachedGrenade = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Attached Grenade"));
+	AttachedGrenade->SetupAttachment(GetMesh(), FName("GrenadeSocket"));
+	AttachedGrenade->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 
 void ABlasternautCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	SpawnDefaultWeapon();
 
+	UpdateHUDAmmo();
 	UpdateHUDHealth();
+	UpdateHUDShield();
 
 	// Only server registers damage
 	if (HasAuthority())
 	{
 		OnTakeAnyDamage.AddDynamic(this, &ABlasternautCharacter::ReceiveDamage);
+	}
+
+	if (AttachedGrenade)
+	{
+		AttachedGrenade->SetVisibility(false);
 	}
 }
 
@@ -89,6 +108,7 @@ void ABlasternautCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 
 	DOREPLIFETIME_CONDITION(ABlasternautCharacter, OverlappingWeapon, COND_OwnerOnly);
 	DOREPLIFETIME(ABlasternautCharacter, Health);
+	DOREPLIFETIME(ABlasternautCharacter, Shield);
 	DOREPLIFETIME(ABlasternautCharacter, bDisableGameplay);
 }
 
@@ -99,18 +119,21 @@ void ABlasternautCharacter::PostInitializeComponents()
 	{
 		Combat->Character = this;
 	}
+	if (Buff)
+	{
+		Buff->Character = this;
+		Buff->SetInitialSpeed
+		(
+			GetCharacterMovement()->MaxWalkSpeed,
+			GetCharacterMovement()->MaxWalkSpeedCrouched
+		);
+		Buff->SetInitialJumpVelocity(GetCharacterMovement()->JumpZVelocity);
+	}
 }
 
 void ABlasternautCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
-
-	// Combat input
-	PlayerInputComponent->BindAction("Aim", IE_Pressed, this, &ABlasternautCharacter::AimButtonPressed);
-	PlayerInputComponent->BindAction("Aim", IE_Released, this, &ABlasternautCharacter::AimButtonReleased);
-	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &ABlasternautCharacter::FireButtonPressed);
-	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ABlasternautCharacter::FireButtonReleased);
-	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &ABlasternautCharacter::ReloadButtonPressed);
 
 	// Movement actions inputs
 	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ABlasternautCharacter::Jump);
@@ -122,6 +145,27 @@ void ABlasternautCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
 	PlayerInputComponent->BindAxis("MoveRight", this, &ABlasternautCharacter::MoveRight);
 	PlayerInputComponent->BindAxis("Turn", this, &ABlasternautCharacter::Turn);
 	PlayerInputComponent->BindAxis("LookUp", this, &ABlasternautCharacter::LookUp);
+
+	// Combat input
+	PlayerInputComponent->BindAction("Aim", IE_Pressed, this, &ABlasternautCharacter::AimButtonPressed);
+	PlayerInputComponent->BindAction("Aim", IE_Released, this, &ABlasternautCharacter::AimButtonReleased);
+	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &ABlasternautCharacter::FireButtonPressed);
+	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ABlasternautCharacter::FireButtonReleased);
+	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &ABlasternautCharacter::ReloadButtonPressed);
+	PlayerInputComponent->BindAction("ThrowGrenade", IE_Pressed, this, &ABlasternautCharacter::ThrowGrenadeButtonPressed);
+}
+
+void ABlasternautCharacter::PollInit()
+{
+	if (BlasternautPlayerState == nullptr)
+	{
+		BlasternautPlayerState = GetPlayerState<ABlasternautPlayerState>();
+		if (BlasternautPlayerState)
+		{
+			BlasternautPlayerState->AddToScore(0.f);
+			BlasternautPlayerState->AddToDefeats(0);
+		}
+	}
 }
 
 void ABlasternautCharacter::Tick(float DeltaTime)
@@ -252,241 +296,61 @@ void ABlasternautCharacter::RotateInPlace(float DeltaTime)
 	}
 }
 
-//
-// ------------------- Montages -------------------
-//
-void ABlasternautCharacter::PlayFireMontage(bool bAiming)
+void ABlasternautCharacter::CalculateAO_Pitch()
 {
-	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
-
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && FireWeaponMontage)
+	//
+	// Due to compression when sending rotator through network
+	// Pitch should be converted back for players that is not locally controlled
+	//
+	AO_Pitch = GetBaseAimRotation().Pitch;
+	if (AO_Pitch > 90.f && !IsLocallyControlled())
 	{
-		AnimInstance->Montage_Play(FireWeaponMontage);
-		FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
-		AnimInstance->Montage_JumpToSection(SectionName);
+		// map pitch from [270, 360) to [-90, 0)
+		AO_Pitch -= 360.f;
+		//FVector2D InRange(270.f, 360.f);
+		//FVector2D OutRange(-90.f, 0.f);
+		//AO_Pitch = FMath::GetMappedRangeValueClamped(InRange, OutRange, AO_Pitch);
 	}
 }
 
-void ABlasternautCharacter::PlayReloadMontage()
-{
-	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
-
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && ReloadMontage)
-	{
-		AnimInstance->Montage_Play(ReloadMontage);
-		FName SectionName;
-
-		switch (Combat->EquippedWeapon->GetWeaponType())
-		{
-		case EWeaponType::EWT_AssaultRifle:
-			SectionName = FName("Rifle");
-			break;
-		}
-	}
-}
-
-void ABlasternautCharacter::PlayElimMontage()
-{
-	
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && ElimMontage)
-	{
-		auto AnimationTimeResult = AnimInstance->Montage_Play(ElimMontage);
-		if (AnimationTimeResult == 0.f) UE_LOG(LogTemp, Warning, TEXT("Failed to play Elim montage"));
-		//28.09
-		/*if (!HasAuthority() && IsLocallyControlled())
-		{
-			UE_LOG(LogTemp, Warning, TEXT("Montage Played LOCAL, %f"), anim_time);
-		}
-		else if (HasAuthority())
-		{
-			UE_LOG(LogTemp, Warning, TEXT("Montage Played SERVER, %f"), anim_time);
-		}*/
-	}
-}
-
-void ABlasternautCharacter::PlayHitReactMontage()
+void ABlasternautCharacter::SimProxiesTurn()
 {
 	if (!Combat || !Combat->EquippedWeapon) return;
 
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && HitReactMontage)
+	bRotateRootBone = false;
+
+	// 23.09 // float Speed = CalculateSpeed();
+	if (CalculateSpeed() > 0.f)
 	{
-		AnimInstance->Montage_Play(HitReactMontage);
-		//FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
-		FName SectionName("FromFront");
-		AnimInstance->Montage_JumpToSection(SectionName);
+		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+		return;
 	}
-}
 
-//
-// ------------------- Buttons -------------------
-//
-void ABlasternautCharacter::AimButtonPressed()
-{
-	if (bDisableGameplay) return;
+	ProxyRotationLastFrame = ProxyRotation;
+	ProxyRotation = GetActorRotation();
+	ProxyYaw = UKismetMathLibrary::NormalizedDeltaRotator(ProxyRotation, ProxyRotationLastFrame).Yaw;
 
-	//if (Combat) ***
-	if (IsWeaponEquipped())
+	//UE_LOG(LogTemp, Warning, TEXT("Proxy Yaw: %f"), ProxyYaw);
+
+	if (FMath::Abs(ProxyYaw) > TurnTreshold)
 	{
-		Combat->SetAiming(true);
-	}
-}
-
-void ABlasternautCharacter::AimButtonReleased()
-{
-	if (bDisableGameplay) return;
-
-	if (Combat)
-	{
-		Combat->SetAiming(false);
-	}
-}
-
-void ABlasternautCharacter::EquipButtonPressed()
-{
-	if (bDisableGameplay) return;
-
-	if (Combat)
-	{
-		if (HasAuthority())
+		if (ProxyYaw > TurnTreshold)
 		{
-			Combat->EquipWeapon(OverlappingWeapon);
+			TurningInPlace = ETurningInPlace::ETIP_Right;
+		}
+		else if (ProxyYaw < -TurnTreshold)
+		{
+			TurningInPlace = ETurningInPlace::ETIP_Left;
 		}
 		else
 		{
-			ServerEquipButtonPressed();
+			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 		}
+		return;
 	}
+
+	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 }
-
-void ABlasternautCharacter::CrouchButtonPressed()
-{
-	if (bDisableGameplay) return;
-
-	if (bIsCrouched)
-	{
-		UnCrouch();
-	}
-	else
-	{
-		Crouch();
-	}
-}
-
-void ABlasternautCharacter::FireButtonPressed()
-{
-	if (bDisableGameplay) return;
-
-	if (Combat)
-	{
-		Combat->FireButtonPressed(true);
-	}
-}
-
-void ABlasternautCharacter::FireButtonReleased()
-{
-	if (bDisableGameplay) return;
-
-	if (Combat)
-	{
-		Combat->FireButtonPressed(false);
-	}
-}
-
-void ABlasternautCharacter::ReloadButtonPressed()
-{
-	if (bDisableGameplay) return;
-
-	if (Combat)
-	{
-		Combat->Reload();
-	}
-}
-
-//
-// ------------------- Replicated -------------------
-//
-void ABlasternautCharacter::OnRep_ReplicatedMovement()	
-{
-	Super::OnRep_ReplicatedMovement();
-	
-	SimProxiesTurn();
-	TimeSinceLastMoveReplication = 0.f;
-}
-
-void ABlasternautCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)
-{
-	if (OverlappingWeapon)
-	{
-		OverlappingWeapon->ShowPickupWidget(true);
-	}
-
-	if (LastWeapon)
-	{
-		LastWeapon->ShowPickupWidget(false);
-	}
-}
-
-void ABlasternautCharacter::OnRep_Health()
-{
-	// When health is changed and replicated, we can also call animation for clients
-	UpdateHUDHealth();
-	PlayHitReactMontage();
-}
-
-//
-// ------------------- To Sort -------------------
-//
-void ABlasternautCharacter::ReceiveDamage(AActor* DamageActor, float Damage, const UDamageType* DamageType, AController* InstigatorController, AActor* DamageCauser)
-{
-	Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
-
-	UpdateHUDHealth();
-	
-	// Character should be eliminated
-	if (Health == 0.f)
-	{
-		auto* BlasternautGameMode = GetWorld()->GetAuthGameMode<ABlasternautGameMode>();
-		if (BlasternautGameMode) 
-		{
-			BlasternautController = BlasternautController ? BlasternautController : Cast<ABlasternautController>(Controller);
-			auto* AttackerController = Cast<ABlasternautController>(InstigatorController);
-			BlasternautGameMode->PlayerEliminated(this, BlasternautController, AttackerController);
-		}
-	}
-	else
-	{
-		PlayHitReactMontage();
-	}
-}
-
-void ABlasternautCharacter::UpdateHUDHealth()
-{
-	BlasternautController = BlasternautController ? BlasternautController : Cast<ABlasternautController>(Controller);
-
-	if (BlasternautController)
-	{
-		BlasternautController->SetHUDHealth(Health, MaxHealth);
-	}
-}
-
-void ABlasternautCharacter::PollInit()
-{
-	if (BlasternautPlayerState == nullptr)
-	{
-		BlasternautPlayerState = GetPlayerState<ABlasternautPlayerState>();
-		if (BlasternautPlayerState)
-		{
-			BlasternautPlayerState->AddToScore(0.f);
-			BlasternautPlayerState->AddToDefeats(0);
-		}
-	}
-}
-
-
 
 void ABlasternautCharacter::AimOffset(float DeltaTime)
 {
@@ -524,97 +388,313 @@ void ABlasternautCharacter::AimOffset(float DeltaTime)
 	CalculateAO_Pitch();
 }
 
-void ABlasternautCharacter::CalculateAO_Pitch()
+//
+// ------------------- Montages -------------------
+//
+void ABlasternautCharacter::PlayFireMontage(bool bAiming)
 {
-	//
-	// Due to compression when sending rotator through network
-	// Pitch should be converted back for players that is not locally controlled
-	//
-	AO_Pitch = GetBaseAimRotation().Pitch;
-	if (AO_Pitch > 90.f && !IsLocallyControlled())
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && FireWeaponMontage)
 	{
-		// map pitch from [270, 360) to [-90, 0)
-		AO_Pitch -= 360.f;
-		//FVector2D InRange(270.f, 360.f);
-		//FVector2D OutRange(-90.f, 0.f);
-		//AO_Pitch = FMath::GetMappedRangeValueClamped(InRange, OutRange, AO_Pitch);
+		AnimInstance->Montage_Play(FireWeaponMontage);
+		FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
+		AnimInstance->Montage_JumpToSection(SectionName);
 	}
 }
 
-void ABlasternautCharacter::SimProxiesTurn()
+void ABlasternautCharacter::PlayReloadMontage()
 {
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ReloadMontage)
+	{
+		AnimInstance->Montage_Play(ReloadMontage);
+		
+		/*
+		FName SectionName;
+		switch (Combat->EquippedWeapon->GetWeaponType())
+		{
+		case EWeaponType::EWT_AssaultRifle:
+			SectionName = FName("Rifle");
+			break;
+		case EWeaponType::EWT_RocketLauncher:
+			SectionName = FName("RocketLauncher"); 
+			break;
+		case EWeaponType::EWT_Pistol:
+			SectionName = FName("Pistol"); // temp while no pistol animation
+			break;
+		case EWeaponType::EWT_SubmachineGun:
+			SectionName = FName("Pistol"); // temp while no submachine animation
+			break;
+		case EWeaponType::EWT_Shotgun:
+			SectionName = FName("Shotgun"); // temp while no shotgun animation
+			break;
+		case EWeaponType::EWT_SniperRifle:
+			SectionName = FName("SniperRifle"); // temp while no sniper animation
+			break;
+		case EWeaponType::EWT_GrenadeLauncher:
+			SectionName = FName("GrenadeLauncher"); // temp while no grenade animation
+			break;
+
+		default: SectionName = FName("Rifle");
+		}
+		*/
+
+		AnimInstance->Montage_JumpToSection(Combat->EquippedWeapon->GetWeaponTypeName());
+	}
+}
+
+void ABlasternautCharacter::PlayElimMontage()
+{
+	
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ElimMontage)
+	{
+		auto AnimationTimeResult = AnimInstance->Montage_Play(ElimMontage);
+
+		if (AnimationTimeResult == 0.f) UE_LOG(LogTemp, Warning, TEXT("Failed to play Elim montage"));
+	}
+}
+
+void ABlasternautCharacter::PlayThrowGrenadeMontage()
+{
+	
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ThrowGrenadeMontage)
+	{
+		auto AnimationTimeResult = AnimInstance->Montage_Play(ThrowGrenadeMontage);
+		if (AnimationTimeResult == 0.f) UE_LOG(LogTemp, Warning, TEXT("Failed to play throw grenade montage"));
+	}
+}
+
+void ABlasternautCharacter::PlayHitReactMontage()
+{
+	// add montage for unequipped character
 	if (!Combat || !Combat->EquippedWeapon) return;
 
-	bRotateRootBone = false;
-
-	// 23.09 // float Speed = CalculateSpeed();
-	if (CalculateSpeed() > 0.f)
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && HitReactMontage)
 	{
-		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
-		return;
+		// add more montages variants, depend on hit
+		AnimInstance->Montage_Play(HitReactMontage);
+		//FName SectionName = bAiming ? FName("RifleAim") : FName("RifleHip");
+		FName SectionName("FromFront");
+		AnimInstance->Montage_JumpToSection(SectionName);
 	}
+}
 
-	ProxyRotationLastFrame = ProxyRotation;
-	ProxyRotation = GetActorRotation();
-	ProxyYaw = UKismetMathLibrary::NormalizedDeltaRotator(ProxyRotation, ProxyRotationLastFrame).Yaw;
-	
-	//UE_LOG(LogTemp, Warning, TEXT("Proxy Yaw: %f"), ProxyYaw);
+//
+// ------------------- Buttons -------------------
+//
+void ABlasternautCharacter::AimButtonPressed()
+{
+	if (bDisableGameplay) return;
 
-	if (FMath::Abs(ProxyYaw) > TurnTreshold)
+	//if (Combat) ***
+	if (IsWeaponEquipped())
 	{
-		if (ProxyYaw > TurnTreshold)
+		Combat->SetAiming(true);
+	}
+}
+
+void ABlasternautCharacter::AimButtonReleased()
+{
+	if (bDisableGameplay) return;
+
+	if (Combat)
+	{
+		Combat->SetAiming(false);
+	}
+}
+
+void ABlasternautCharacter::EquipButtonPressed()
+{
+	if (bDisableGameplay) return;
+
+	if (Combat)
+	{
+		ServerEquipButtonPressed();
+		/*
+		if (HasAuthority())
 		{
-			TurningInPlace = ETurningInPlace::ETIP_Right;
-		}
-		else if (ProxyYaw < -TurnTreshold)
-		{
-			TurningInPlace = ETurningInPlace::ETIP_Left;
+			Combat->EquipWeapon(OverlappingWeapon);
 		}
 		else
 		{
-			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+			ServerEquipButtonPressed();
 		}
-		return;
+		*/
 	}
-
-	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 }
 
 void ABlasternautCharacter::ServerEquipButtonPressed_Implementation()
 {
 	if (Combat)
 	{
-		Combat->EquipWeapon(OverlappingWeapon);
+		if (OverlappingWeapon)
+		{
+			Combat->EquipWeapon(OverlappingWeapon);
+		}
+		else if (Combat->ShouldSwapWeapons())
+		{
+			// needs more checks before actual swap (reloading, shooting etc.)
+
+			Combat->SwapWeapons();
+		}
 	}
 }
 
-void ABlasternautCharacter::HideCameraInCharacter()
+void ABlasternautCharacter::FireButtonPressed()
 {
-	if (!IsLocallyControlled()) return;
+	if (bDisableGameplay) return;
 
-	if ( (FollowCamera->GetComponentLocation() - GetActorLocation()).Size() < CameraThreshold)
+	if (Combat)
 	{
-		GetMesh()->SetVisibility(false);
-		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
-		{
-			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
-		}
+		Combat->FireButtonPressed(true);
+	}
+}
+
+void ABlasternautCharacter::FireButtonReleased()
+{
+	if (bDisableGameplay) return;
+
+	if (Combat)
+	{
+		Combat->FireButtonPressed(false);
+	}
+}
+
+void ABlasternautCharacter::ReloadButtonPressed()
+{
+	if (bDisableGameplay) return;
+
+	if (Combat)
+	{
+		Combat->Reload();
+	}
+}
+
+void ABlasternautCharacter::ThrowGrenadeButtonPressed()
+{
+	if (Combat)
+	{
+		Combat->ThrowGrenade();
+	}
+}
+
+void ABlasternautCharacter::CrouchButtonPressed()
+{
+	if (bDisableGameplay || GetCharacterMovement()->IsFalling()) return;
+
+	if (bIsCrouched)
+	{
+		UnCrouch();
 	}
 	else
 	{
-		GetMesh()->SetVisibility(true);
-		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
-		{
-			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
-		}
+		Crouch();
 	}
 }
 
-float ABlasternautCharacter::CalculateSpeed()
+//
+// ------------------- Replicated -------------------
+//
+void ABlasternautCharacter::OnRep_ReplicatedMovement()	
 {
-	FVector Velocity = GetVelocity();
-	Velocity.Z = 0;
-	return Velocity.Size();
+	Super::OnRep_ReplicatedMovement();
+	
+	SimProxiesTurn();
+	TimeSinceLastMoveReplication = 0.f;
+}
+
+void ABlasternautCharacter::OnRep_OverlappingWeapon(AWeapon* LastWeapon)
+{
+	if (OverlappingWeapon)
+	{
+		OverlappingWeapon->ShowPickupWidget(true);
+	}
+
+	if (LastWeapon)
+	{
+		LastWeapon->ShowPickupWidget(false);
+	}
+}
+
+void ABlasternautCharacter::OnRep_Health(float LastHealth)
+{
+	// When health is changed and replicated, we can also call animation for clients
+	UpdateHUDHealth();
+
+	if (Health < LastHealth)
+	{
+		PlayHitReactMontage();
+	}
+}
+
+void ABlasternautCharacter::OnRep_Shield(float LastShield)
+{
+	// When health is changed and replicated, we can also call animation for clients
+	UpdateHUDShield();
+
+	if (Shield < LastShield)
+	{
+		PlayHitReactMontage();
+	}
+}
+
+//
+// ------------------- HUD -------------------
+//
+void ABlasternautCharacter::UpdateHUDHealth()
+{
+	BlasternautController = BlasternautController ? BlasternautController : Cast<ABlasternautController>(Controller);
+
+	if (BlasternautController)
+	{
+		BlasternautController->SetHUDHealth(Health, MaxHealth);
+	}
+}
+
+void ABlasternautCharacter::UpdateHUDShield()
+{
+	BlasternautController = BlasternautController ? BlasternautController : Cast<ABlasternautController>(Controller);
+
+	if (BlasternautController)
+	{
+		BlasternautController->SetHUDShield(Shield, MaxShield);
+	}
+}
+
+void ABlasternautCharacter::UpdateHUDAmmo()
+{
+	BlasternautController = BlasternautController ? BlasternautController : Cast<ABlasternautController>(Controller);
+
+	if (BlasternautController && Combat && Combat->EquippedWeapon)
+	{
+		BlasternautController->SetHUDCarriedAmmo(Combat->CarriedAmmo);
+		BlasternautController->SetHUDWeaponAmmo(Combat->EquippedWeapon->GetAmmo());
+	}
+}
+
+//
+// ------------------- DefaultWeapon -------------------
+//
+void ABlasternautCharacter::SpawnDefaultWeapon()
+{
+	auto* BlasternautGameMode = Cast<ABlasternautGameMode>(UGameplayStatics::GetGameMode(this));
+	UWorld* World = GetWorld();
+
+	bool bShouldSpawn = !bElimmed && BlasternautGameMode && DefaultWeaponClass && World && Combat;
+
+	if (bShouldSpawn)
+	{
+		AWeapon* StartingWeapon = World->SpawnActor<AWeapon>(DefaultWeaponClass);
+		StartingWeapon->bDestroyWeapon = true;
+		Combat->EquipWeapon(StartingWeapon);
+	}
 }
 
 //
@@ -622,10 +702,7 @@ float ABlasternautCharacter::CalculateSpeed()
 //
 void ABlasternautCharacter::Elim()
 {
-	if (Combat && Combat->EquippedWeapon)
-	{
-		Combat->EquippedWeapon->Dropped();
-	}
+	HandleWeaponsOnElim();
 
 	MulticastElim();
 
@@ -648,31 +725,20 @@ void ABlasternautCharacter::OnElimTimerFinished()
 
 void ABlasternautCharacter::MulticastElim_Implementation()
 {
-	if (BlasternautController)
-	{
-		BlasternautController->SetHUDWeaponAmmo(0);
-	}
-
+	// Elim 
 	bElimmed = true;
-
-	// Remove weapon - tmp solution for Hit and Elim Montages Collisions
-	//if (Combat) Combat->EquippedWeapon = nullptr;
-	// 28.09
-
 	PlayElimMontage();
 
+	if (BlasternautController) { BlasternautController->SetHUDWeaponAmmo(0); }
+	
 	// Movement disable
 	//GetCharacterMovement()->StopMovementImmediately();
-	GetCharacterMovement()->DisableMovement();
 	bDisableGameplay = true;
+	GetCharacterMovement()->DisableMovement();
 
-	if (Combat)
-	{
-		Combat->FireButtonPressed(false);
-	}
-
-	//if (BlasternautController) DisableInput(BlasternautController);
-
+	// Disable fire button
+	if (Combat) { Combat->FireButtonPressed(false); }
+	
 	// Disable collision
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -699,7 +765,7 @@ void ABlasternautCharacter::MulticastElim_Implementation()
 			GetActorRotation()
 		);
 	}
-
+	// Spawns Elim sound
 	if (ElimBotSound)
 	{
 		UGameplayStatics::SpawnSoundAtLocation(
@@ -708,12 +774,122 @@ void ABlasternautCharacter::MulticastElim_Implementation()
 			GetActorLocation()
 		);
 	}
+
+	// Hide Sniper Rifle Scope
+	bool HideAimWidget = IsLocallyControlled() && 
+		Combat && Combat->bIsAiming && 
+		Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponType() == EWeaponType::EWT_SniperRifle;
+	if (HideAimWidget)
+	{
+		ShowSniperScopeWidget(false);
+	}
+}
+
+void ABlasternautCharacter::HandleWeaponsOnElim()
+{
+	if (Combat == nullptr) return;
+	
+	if (Combat->EquippedWeapon)
+	{
+		HandleWeaponOnElim(Combat->EquippedWeapon);
+	}
+	if (Combat->SecondaryWeapon)
+	{
+		HandleWeaponOnElim(Combat->SecondaryWeapon);
+	}
+}
+
+void ABlasternautCharacter::HandleWeaponOnElim(AWeapon* Weapon)
+{
+	if (Weapon == nullptr) return;
+
+	if (Weapon->bDestroyWeapon)
+	{
+		Weapon->Destroy();
+	}
+	else
+	{
+		Weapon->Dropped();
+	}
+}
+
+//
+// ------------------- To Sort -------------------
+//
+void ABlasternautCharacter::ReceiveDamage(AActor* DamageActor, float Damage, const UDamageType* DamageType, AController* InstigatorController, AActor* DamageCauser)
+{
+	if (bElimmed) return;
+
+	// Shield absorbs
+	float DamageToHealth = Damage;
+	if (Shield > 0.f)
+	{
+		if (Shield >= Damage)
+		{
+			Shield = FMath::Clamp(Shield - Damage, 0.f, MaxShield);
+			DamageToHealth = 0;
+		}
+		else
+		{
+			DamageToHealth = FMath::Clamp(DamageToHealth - Shield, 0.f, Damage);
+			Shield = 0.f;
+		}
+	}
+
+	Health = FMath::Clamp(Health - DamageToHealth, 0.f, MaxHealth);
+
+	UpdateHUDHealth();
+	UpdateHUDShield();
+
+	// Character should be eliminated
+	if (Health == 0.f)
+	{
+		auto* BlasternautGameMode = GetWorld()->GetAuthGameMode<ABlasternautGameMode>();
+		if (BlasternautGameMode)
+		{
+			BlasternautController = BlasternautController ? BlasternautController : Cast<ABlasternautController>(Controller);
+			auto* AttackerController = Cast<ABlasternautController>(InstigatorController);
+			BlasternautGameMode->PlayerEliminated(this, BlasternautController, AttackerController);
+		}
+	}
+	else
+	{
+		PlayHitReactMontage();
+	}
+}
+
+void ABlasternautCharacter::HideCameraInCharacter()
+{
+	if (!IsLocallyControlled()) return;
+
+	if ((FollowCamera->GetComponentLocation() - GetActorLocation()).Size() < CameraThreshold)
+	{
+		GetMesh()->SetVisibility(false);
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
+		}
+	}
+	else
+	{
+		GetMesh()->SetVisibility(true);
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
+		}
+	}
+}
+
+float ABlasternautCharacter::CalculateSpeed()
+{
+	FVector Velocity = GetVelocity();
+	Velocity.Z = 0;
+	return Velocity.Size();
 }
 
 //
 // ------------------- GET - SET - CHECK -------------------
 //
-
 AWeapon* ABlasternautCharacter::GetEquippedWeapon() const
 {
 	return Combat == nullptr ? nullptr : Combat->EquippedWeapon;

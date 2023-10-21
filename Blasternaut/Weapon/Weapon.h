@@ -7,11 +7,15 @@
 #include "WeaponTypes.h"
 #include "Weapon.generated.h"
 
+/*
+* 
+*/
 UENUM(BlueprintType)
 enum class EWeaponState : uint8
 {
 	EWS_Initial UMETA(DisplayName = "Initial State"),
 	EWS_Equipped UMETA(DisplayName = "Equipped"),
+	EWS_EquippedSecondary UMETA(DisplayName = "EquippedSecondary"),
 	EWS_Dropped UMETA(DisplayName = "Dropped"),
 
 	EWS_MAX UMETA(DisplayName = "DefaultMAX")
@@ -27,18 +31,19 @@ public:
 	AWeapon();
 	virtual void Tick(float DeltaTime) override;
 
-	// replica
+	// replicated props
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void OnRep_Owner() override;
 
-	void ShowPickupWidget(bool bShowWidget);
 	virtual void Fire(const FVector& HitTarget);
+
+	void ShowPickupWidget(bool bShowWidget);
 	void Dropped();
 	void AddAmmo(int32 AmmoToAdd);
 
-	/**
-	* Weapon Crosshairs textures
-	*/
+	
+	// --------------- Weapon Crosshairs textures ---------------
+
 	UPROPERTY(EditAnywhere, Category = Crosshairs)
 	class UTexture2D* CrosshairsCenter;
 	UPROPERTY(EditAnywhere, Category = Crosshairs)
@@ -50,18 +55,15 @@ public:
 	UPROPERTY(EditAnywhere, Category = Crosshairs)
 	UTexture2D* CrosshairsBottom;
 
-	/*
-	* Zoom FOV while aiming
-	*/
+	// --------------- Zoom FOV while aiming ---------------
 	UPROPERTY(EditAnywhere)
 	float ZoomedFOV = 30.f;
 
 	UPROPERTY(EditAnywhere)
 	float ZoomInterpSpeed = 20.f;
 
-	/**
-	*  Automatic weapon fire
-	*/
+	 
+	// --------------- Automatic weapon fire ---------------
 
 	UPROPERTY(EditAnywhere, Category = Combat)
 	float FireDelay = .15f;
@@ -69,13 +71,24 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat)
 	bool bAutomatic = true;
 
+	// --------------- HUD ---------------
 	void TryUpdateHUDAmmo();
 
-	UPROPERTY(EditAnywhere)
-	class USoundCue* EquipSound;
+	
+	// --------------- Custom depth ---------------
+	void EnableCustomDepth(bool bEnabled);
+	void UpdateOutlineColor(int DepthValue);
+
+	bool bDestroyWeapon = false;
 
 protected:
 	virtual void BeginPlay() override;
+
+	virtual void OnWeaponStateSet();
+
+	virtual void HandleEquippedState();
+	virtual void HandleDroppedState();
+	virtual void HandleEquippedSecondaryState();
 
 	UFUNCTION()
 	virtual void OnSphereOverlap(
@@ -97,7 +110,10 @@ protected:
 
 	void SetWeaponPhysics(bool Enable);
 
+	void SetSpecialWeaponPhysics(bool Enable);
+
 private:
+
 	UPROPERTY(VisibleAnywhere, Category = "Weapon Properties")
 	USkeletalMeshComponent* WeaponMesh;
 
@@ -106,6 +122,13 @@ private:
 
 	UPROPERTY(ReplicatedUsing = OnRep_WeaponState, VisibleAnywhere, Category = "Weapon Properties")
 	EWeaponState WeaponState;
+
+	// --------------- SOUND ---------------
+	UPROPERTY(EditAnywhere)
+	class USoundCue* EquipSound;
+
+	UPROPERTY(EditAnywhere)
+	USoundCue* EmptyShotSound;
 
 	UFUNCTION()
 	void OnRep_WeaponState();
@@ -130,13 +153,19 @@ private:
 	UPROPERTY(EditAnywhere)
 	int32 MagCapacity;
 
+	// --------------- Owner ---------------
 	UPROPERTY()
 	class ABlasternautCharacter* OwnerCharacter;
 	UPROPERTY()
 	class ABlasternautController* OwnerController;
 
+	// --------------- Weapon Type ---------------
 	UPROPERTY(EditAnywhere)
 	EWeaponType WeaponType;
+
+	// used for naming animation sections of weapon in montages
+	FName WeaponNameType;
+
 
 public:
 
@@ -146,7 +175,12 @@ public:
 	FORCEINLINE float GetZoomedFOV() const { return ZoomedFOV; }
 	FORCEINLINE float GetZoomInterpSpeed() const { return ZoomInterpSpeed; }
 	FORCEINLINE bool IsEmpty() const { return Ammo <= 0; }
+	FORCEINLINE bool IsFull() const { return (Ammo == MagCapacity); }
 	FORCEINLINE EWeaponType GetWeaponType() const { return WeaponType; }
+	FORCEINLINE FName GetWeaponTypeName() const { return WeaponNameType;}
 	FORCEINLINE int32 GetAmmo() const { return Ammo; }
 	FORCEINLINE int32 GetMagCapacity() const { return MagCapacity; }
+
+	FORCEINLINE USoundCue* GetEmptyShotSound() const { return EmptyShotSound; }
+	FORCEINLINE USoundCue* GetEquipSound() const { return EquipSound; }
 };

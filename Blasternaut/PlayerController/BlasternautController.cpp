@@ -246,10 +246,35 @@ void ABlasternautController::SetHUDHealth(float Health, float MaxHealth)
 	}
 	else
 	{
-		bInitializeCharacterOverlay = true;
+		bInitializeHealth = true;
 		HUDHealth = Health;
 		HUDMaxHealth = MaxHealth;
 	}
+}
+
+void ABlasternautController::SetHUDShield(float Shield, float MaxShield)
+{
+	TrySetHUD();
+
+	if (IsOverlayValid() &&
+		BlasternautHUD->CharacterOverlay->ShieldBar &&
+		BlasternautHUD->CharacterOverlay->ShieldText)
+	{
+		const float ShieldPercent = Shield / MaxShield;
+		BlasternautHUD->CharacterOverlay->ShieldBar->SetPercent(ShieldPercent);
+
+		FString ShieldText = FString::Printf(TEXT("%d/%d"),
+			FMath::CeilToInt(Shield), FMath::CeilToInt(MaxShield));
+
+		BlasternautHUD->CharacterOverlay->ShieldText->SetText(FText::FromString(ShieldText));
+	}
+	else
+	{
+		bInitializeShield = true;
+		HUDShield = Shield;
+		HUDMaxShield = MaxShield;
+	}
+
 }
 
 void ABlasternautController::SetHUDScore(float Score)
@@ -263,7 +288,7 @@ void ABlasternautController::SetHUDScore(float Score)
 	}
 	else
 	{
-		bInitializeCharacterOverlay = true;
+		bInitializeScore = true;
 		HUDScore = Score;
 	}
 }
@@ -279,7 +304,7 @@ void ABlasternautController::SetHUDDefeats(int32 Defeats)
 	}
 	else
 	{
-		bInitializeCharacterOverlay = true;
+		bInitializeDefeats = true;
 		HUDDefeats = Defeats;
 	}
 }
@@ -293,6 +318,11 @@ void ABlasternautController::SetHUDWeaponAmmo(int32 Ammo)
 		FString AmmoText = FString::Printf(TEXT("%d"), Ammo);
 		BlasternautHUD->CharacterOverlay->WeaponAmmoAmount->SetText(FText::FromString(AmmoText));
 	}
+	else
+	{
+		bInitializeWeaponAmmo = true;
+		HUDWeaponAmmo = Ammo;
+	}
 }
 
 void ABlasternautController::SetHUDCarriedAmmo(int32 Ammo)
@@ -303,6 +333,11 @@ void ABlasternautController::SetHUDCarriedAmmo(int32 Ammo)
 	{
 		FString AmmoText = FString::Printf(TEXT("%d"), Ammo);
 		BlasternautHUD->CharacterOverlay->CarriedAmmoAmount->SetText(FText::FromString(AmmoText));
+	}
+	else
+	{
+		bInitializeCarriedAmmo = true;
+		HUDCarriedAmmo = Ammo;
 	}
 }
 
@@ -341,6 +376,22 @@ void ABlasternautController::SetHUDAnnouncementCountDown(float CountdownTime)
 
 		FString CountdownText = FString::Printf(TEXT("%02d:%02d"), Minutes, Seconds);
 		BlasternautHUD->Announcement->WarmupTime->SetText(FText::FromString(CountdownText));
+	}
+}
+
+void ABlasternautController::SetHUDGrenades(int32 Grenades)
+{
+	TrySetHUD();
+
+	if (IsOverlayValid() && BlasternautHUD->CharacterOverlay->GrenadesText)
+	{
+		FString GrenadesText = FString::Printf(TEXT("%d"), Grenades);
+		BlasternautHUD->CharacterOverlay->GrenadesText->SetText(FText::FromString(GrenadesText));
+	}
+	else
+	{
+		bInitializeGrenades = true;
+		HUDGrenades = Grenades;
 	}
 }
 
@@ -386,16 +437,25 @@ void ABlasternautController::SetHUDTime()
 
 void ABlasternautController::PollInit()
 {
-	if (CharacterOverlay == nullptr)
+	if (CharacterOverlay) return;
+
+	if (BlasternautHUD && BlasternautHUD->CharacterOverlay)
 	{
-		if (BlasternautHUD && BlasternautHUD->CharacterOverlay)
+		CharacterOverlay = BlasternautHUD->CharacterOverlay;
+
+		if (CharacterOverlay)
 		{
-			CharacterOverlay = BlasternautHUD->CharacterOverlay;
-			if (CharacterOverlay)
+			if (bInitializeHealth)  SetHUDHealth(HUDHealth, HUDMaxHealth);
+			if (bInitializeShield)  SetHUDShield(HUDShield, HUDMaxShield);
+			if (bInitializeScore)   SetHUDScore(HUDScore);
+			if (bInitializeDefeats) SetHUDDefeats(HUDDefeats);
+			if (bInitializeCarriedAmmo) SetHUDCarriedAmmo(HUDCarriedAmmo);
+			if (bInitializeWeaponAmmo) SetHUDWeaponAmmo(HUDWeaponAmmo);
+
+			auto* BlasternautCharacter = Cast<ABlasternautCharacter>(GetPawn());
+			if (bInitializeGrenades && BlasternautCharacter && BlasternautCharacter->GetCombat())
 			{
-				SetHUDHealth(HUDHealth, HUDMaxHealth);
-				SetHUDScore(HUDScore);
-				SetHUDDefeats(HUDDefeats);
+				SetHUDGrenades(BlasternautCharacter->GetCombat()->GetGrenades());
 			}
 		}
 	}
