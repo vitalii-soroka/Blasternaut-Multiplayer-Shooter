@@ -19,6 +19,10 @@ public:
 
 	virtual void Destroyed() override;
 
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& Event) override;
+#endif
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void OnHit(

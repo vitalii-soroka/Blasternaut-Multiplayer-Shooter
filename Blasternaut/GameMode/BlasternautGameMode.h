@@ -39,6 +39,8 @@ public:
 		AController* ElimmedController
 	);
 
+	void PlayerLeftGame(class ABlasternautPlayerState* PlayerLeaving);
+
 	UPROPERTY(EditDefaultsOnly)
 	float WarmupTime = 10.f;
 

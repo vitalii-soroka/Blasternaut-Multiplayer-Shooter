@@ -20,11 +20,6 @@ AProjectileRocket::AProjectileRocket()
 	RocketMovementComponent->SetIsReplicated(true);
 }
 
-void AProjectileRocket::Destroyed()
-{
-	//
-}
-
 void AProjectileRocket::BeginPlay()
 {
 	Super::BeginPlay();
@@ -67,6 +62,28 @@ void AProjectileRocket::BeginPlay()
 
 }
 
+void AProjectileRocket::Destroyed()
+{
+	//
+}
+
+#if WITH_EDITOR
+void AProjectileRocket::PostEditChangeProperty(FPropertyChangedEvent& Event)
+{
+	Super::PostEditChangeProperty(Event);
+
+	FName PropertyName = Event.Property ? Event.Property->GetFName() : NAME_None;
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(AProjectileRocket, InitialSpeed))
+	{
+		if (RocketMovementComponent)
+		{
+			RocketMovementComponent->InitialSpeed = InitialSpeed;
+			RocketMovementComponent->MaxSpeed = InitialSpeed;
+		}
+	}
+}
+#endif
+
 
 void AProjectileRocket::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
@@ -97,9 +114,9 @@ void AProjectileRocket::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, 
 		CollisionBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
-	if (TrailSystemComponent && TrailSystemComponent->GetSystemInstance())
+	if (TrailSystemComponent && TrailSystemComponent->GetSystemInstanceController())
 	{
-		TrailSystemComponent->GetSystemInstance()->Deactivate();
+		TrailSystemComponent->GetSystemInstanceController()->Deactivate();
 	}
 
 	if (ProjectileLoopComponent && ProjectileLoopComponent->IsPlaying())
@@ -107,5 +124,3 @@ void AProjectileRocket::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, 
 		ProjectileLoopComponent->Stop();
 	}
 }
-
-

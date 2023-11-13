@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #include "BlasternautController.h"
 
 #include "Blasternaut/Character/BlasternautCharacter.h"
@@ -14,6 +12,8 @@
 #include "Net/UnrealNetwork.h"
 #include "Blasternaut/GameState/BlasternautGameState.h"
 #include "Blasternaut/PlayerState/BlasternautPlayerState.h"
+#include "Components/Image.h"
+#include "Blasternaut/HUD/ReturnToMainMenu.h"
 
 void ABlasternautController::BeginPlay()
 {
@@ -21,6 +21,16 @@ void ABlasternautController::BeginPlay()
 
 	BlasternautHUD = Cast<ABlasternautHUD>(GetHUD());
 	ServerCheckMatchState();
+}
+
+void ABlasternautController::SetupInputComponent()
+{
+	Super::SetupInputComponent();
+
+	if (InputComponent)
+	{
+		InputComponent->BindAction("Quit", IE_Pressed, this, &ABlasternautController::ShowReturnToMainMenu);
+	}
 }
 
 void ABlasternautController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -38,6 +48,7 @@ void ABlasternautController::OnPossess(APawn* InPawn)
 	if (BlasternautCharacter)
 	{
 		SetHUDHealth(BlasternautCharacter->GetHealth(), BlasternautCharacter->GetMaxHealth());
+		SetHUDShield(BlasternautCharacter->GetShield(), BlasternautCharacter->GetMaxShield());
 	}
 }
 
@@ -54,10 +65,11 @@ void ABlasternautController::ReceivedPlayer()
 void ABlasternautController::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-	
+
 	SetHUDTime();
 	CheckTimeSync(DeltaTime);
 	PollInit();
+	CheckHighPing(DeltaTime);
 }
 
 // -------------- Server Time Sync --------------
@@ -121,7 +133,8 @@ void ABlasternautController::ServerRequestServerTime_Implementation(float TimeOf
 void ABlasternautController::ClientReportServerTime_Implementation(float TimeOfClientRequest, float TimeServerReceivedClientRequest)
 {
 	float RoundTripTime = GetWorld()->GetTimeSeconds() - TimeOfClientRequest;
-	float CurrentServerTime = TimeServerReceivedClientRequest + (0.5f * RoundTripTime);
+	SingleTripTime = (0.5f * RoundTripTime);
+	float CurrentServerTime = TimeServerReceivedClientRequest + SingleTripTime;
 	ClientServerDelta = CurrentServerTime - GetWorld()->GetTimeSeconds();
 }
 
@@ -219,6 +232,110 @@ void ABlasternautController::HandleCooldown()
 		BlasternautCharacter->bDisableGameplay = true;
 		BlasternautCharacter->GetCombat()->FireButtonPressed(false);
 	}
+}
+
+//
+void ABlasternautController::StartHighPingWarning()
+{
+	TrySetHUD();
+
+	if (IsOverlayValid() &&
+		BlasternautHUD->CharacterOverlay->HighPingImage &&
+		BlasternautHUD->CharacterOverlay->HighPingAnimation)
+	{
+		BlasternautHUD->CharacterOverlay->HighPingImage->SetOpacity(1.f);
+		BlasternautHUD->CharacterOverlay->PlayAnimation(
+			BlasternautHUD->CharacterOverlay->HighPingAnimation,
+			0.f,
+			5
+		);
+	}
+}
+
+void ABlasternautController::StopHighPingWarning()
+{
+	TrySetHUD();
+
+	if (IsOverlayValid() &&
+		BlasternautHUD->CharacterOverlay->HighPingImage &&
+		BlasternautHUD->CharacterOverlay->HighPingAnimation)
+	{
+		BlasternautHUD->CharacterOverlay->HighPingImage->SetOpacity(0.f);
+		if (BlasternautHUD->CharacterOverlay->IsAnimationPlaying(BlasternautHUD->CharacterOverlay->HighPingAnimation))
+		{
+			BlasternautHUD->CharacterOverlay->StopAnimation(BlasternautHUD->CharacterOverlay->HighPingAnimation);
+		}
+	}
+}
+
+void ABlasternautController::CheckHighPing(float DeltaTime)
+{
+	if (HasAuthority()) return;
+
+	HighPingRunningTime += DeltaTime;
+	if (HighPingRunningTime > CheckPingFrequency)
+	{
+		PlayerState = PlayerState == nullptr ? GetPlayerState<APlayerState>() : PlayerState;
+		if (PlayerState)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("PlayerState->CompressedPing() * 4: %d"), PlayerState->GetCompressedPing() * 4);
+
+			if (PlayerState->GetCompressedPing() * 4 > HighPingThreshold)
+			{
+				StartHighPingWarning();
+				PingAnimationRunningTime = 0.f;
+				ServerReportPingStatus(true);
+			}
+			else
+			{
+				ServerReportPingStatus(false);
+			}
+		}
+		HighPingRunningTime = 0.f;
+	}
+
+	bool bPingWarningActive = IsOverlayValid() && 
+		BlasternautHUD->CharacterOverlay->HighPingAnimation &&
+		BlasternautHUD->CharacterOverlay->IsAnimationPlaying(BlasternautHUD->CharacterOverlay->HighPingAnimation);
+
+	if (bPingWarningActive)
+	{
+		PingAnimationRunningTime += DeltaTime;
+		if (PingAnimationRunningTime > HighPingDuration)
+		{
+			StopHighPingWarning();
+		}
+	}
+}
+
+void ABlasternautController::ShowReturnToMainMenu()
+{
+	// TODO show the Return to Main Menu Widget
+	if (ReturnToMainMenuWidget == nullptr) return;
+
+	if (ReturnToMainMenu == nullptr)
+	{
+		ReturnToMainMenu = CreateWidget<UReturnToMainMenu>(this, ReturnToMainMenuWidget);
+	}
+
+	if (ReturnToMainMenu)
+	{
+		bReturnToMainMenuOpen = !bReturnToMainMenuOpen;
+		if (bReturnToMainMenuOpen)
+		{
+			ReturnToMainMenu->MenuSetup();
+		}
+		else
+		{
+			ReturnToMainMenu->MenuTearDown();
+		}
+	}
+}
+
+// is ping too high?
+void ABlasternautController::ServerReportPingStatus_Implementation(bool bHighPing)
+{
+	HighPingDelegate.Broadcast(bHighPing);
 }
 
 // -------------- Set HUD Elements --------------

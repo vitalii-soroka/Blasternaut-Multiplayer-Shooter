@@ -16,6 +16,15 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void Destroyed() override;
 	
+
+	// ---------- Server Side Rewind ----------
+	bool bUseServerSideRewind = false;
+	FVector_NetQuantize TraceStart;
+	FVector_NetQuantize100 InitialVelocity;
+	
+	UPROPERTY(EditAnywhere)
+	float InitialSpeed = 15000;
+
 protected:
 	virtual void BeginPlay() override;
 	void StartDestroyTimer();
@@ -34,7 +43,6 @@ protected:
 
 	/** ---------- Damage ---------- */
 
-	UPROPERTY(EditAnywhere)
 	float Damage = 20.f;
 
 	UPROPERTY(EditDefaultsOnly)
@@ -78,4 +86,6 @@ private:
 	UPROPERTY(EditAnywhere)
 	float DestroyTime = 3.f;
 
+public:
+	FORCEINLINE void SetDamage(float DamageToSet) { Damage = DamageToSet; }
 };

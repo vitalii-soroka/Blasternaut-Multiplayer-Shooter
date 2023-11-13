@@ -71,6 +71,5 @@ private:
 
 public:	
 	
-	FORCEINLINE bool IsCharacterActive() const { return Character && !Character->IsElimmed(); }
-		
+	FORCEINLINE bool IsCharacterActive() const;
 };

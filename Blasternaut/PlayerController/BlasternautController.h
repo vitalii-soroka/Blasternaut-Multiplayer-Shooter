@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "BlasternautController.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FHighPingDelegate, bool, bPingTooHigh);
 /**
  * 
  */
@@ -13,7 +14,9 @@ UCLASS()
 class BLASTERNAUT_API ABlasternautController : public APlayerController
 {
 	GENERATED_BODY()
+
 public:
+
 	void SetHUDHealth(float Health, float MaxHealth);
 	void SetHUDShield(float Shield, float MaxShield);
 	void SetHUDScore(float Score);
@@ -36,13 +39,20 @@ public:
 	void HandleMatchHasStarted();
 	void HandleCooldown();
 
+
+	float SingleTripTime = 0.f;
+
+	FHighPingDelegate HighPingDelegate;
+
 protected:
+
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void BeginPlay() override;
+	virtual void SetupInputComponent() override;
+	void PollInit();
 
 	void SetHUDTime();
 	
-	void PollInit();
 	//
 	// Sync time between client and server
 	//
@@ -75,6 +85,13 @@ protected:
 		float Cooldown, 
 		float StartingTime
 	);
+
+	void StartHighPingWarning();
+	void StopHighPingWarning();
+
+	void CheckHighPing(float DeltaTime);
+
+	void ShowReturnToMainMenu();
 
 private:
 	bool TrySetHUD();
@@ -124,4 +141,30 @@ private:
 	int32 HUDGrenades;
 	float HUDCarriedAmmo;
 	float HUDWeaponAmmo;
+
+	// High Ping
+	float HighPingRunningTime = 0.f;
+
+	UPROPERTY(EditAnywhere)
+	float HighPingDuration = 5.f;
+	
+	float PingAnimationRunningTime = 0.f;
+
+	UPROPERTY(EditAnywhere)
+	float CheckPingFrequency = 20.f;
+
+	UFUNCTION(Server, Reliable)
+	void ServerReportPingStatus(bool bHighPing);
+
+	UPROPERTY(EditAnywhere)
+	float HighPingThreshold = 50.f;
+
+	// ---------- Return to Main Menu ----------
+	UPROPERTY(EditAnywhere, Category = HUD)
+	TSubclassOf < class UUserWidget> ReturnToMainMenuWidget;
+	
+	UPROPERTY()
+	class UReturnToMainMenu* ReturnToMainMenu;
+
+	bool bReturnToMainMenuOpen = false;
 };

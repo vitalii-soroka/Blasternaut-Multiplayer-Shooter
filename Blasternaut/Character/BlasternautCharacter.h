@@ -10,6 +10,8 @@
 #include "Blasternaut/BlasternautTypes/CombatState.h"
 #include "BlasternautCharacter.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLeftGame);
+
 UCLASS()
 class BLASTERNAUT_API ABlasternautCharacter : public ACharacter, public IInteractWithCrosshairsInterface
 {
@@ -33,12 +35,13 @@ public:
 	void PlayHitReactMontage();
 	void PlayElimMontage();
 	void PlayThrowGrenadeMontage();
+	void PlaySwapWeaponMontage();
 
 	// --------------- Elimination and Destroying ---------------
-	void Elim();
+	void Elim(bool bPlayerLeft);
 
 	UFUNCTION(NetMulticast, Reliable)
-	void MulticastElim();
+	void MulticastElim(bool bPlayerLeft);
 	virtual void Destroyed() override;
 
 	UPROPERTY(Replicated)
@@ -46,6 +49,11 @@ public:
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void ShowSniperScopeWidget(bool bShowScope);
+
+	UFUNCTION(Server, Reliable)
+	void ServerLeaveGame();
+
+	FOnLeftGame OnLeftGame;
 
 	// --------------- HUD ---------------
 	void UpdateHUDHealth();
@@ -55,7 +63,68 @@ public:
 	// --------------- DefaultWeapon ---------------
 	void SpawnDefaultWeapon();
 
+	// --------------- HitBoxes ---------------
+	// Hitboxes used for server-side rewind;
+
+	UPROPERTY(EditAnywhere)
+	class UBoxComponent* Pelvis_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* headBox;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* Spine02_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* Spine03_Box;
+	
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* UpperarmL_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* UpperarmR_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* LowerarmL_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* LowerarmR_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* HandL_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* HandR_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* BackPack_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* Blanket_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* ThighL_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* ThighR_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* CalfL_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* CalfR_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* FootL_Box;
+
+	UPROPERTY(EditAnywhere)
+	UBoxComponent* FootR_Box;
+
+	UPROPERTY()
+	TMap<FName, UBoxComponent*> HitCollisionBoxes;
+
 protected:
+
 	virtual void BeginPlay() override;
 
 	// --------------- Movement ---------------
@@ -112,11 +181,15 @@ private:
 	UFUNCTION()
 	void OnRep_OverlappingWeapon(AWeapon* LastWeapon);
 
+	// --------------- Actor Components ---------------
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UCombatComponent* Combat;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UBuffComponent* Buff;
+	
+	UPROPERTY(VisibleAnywhere)
+	class ULagCompensationComponent* LagCompensation;
 
 	UFUNCTION(Server, Reliable)
 	void ServerEquipButtonPressed();
@@ -145,6 +218,11 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	UAnimMontage* ThrowGrenadeMontage;
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UAnimMontage* SwapWeaponMontage;
+
+	bool bFinishedSwapping = false;
 
 	void HideCameraInCharacter();
 
@@ -225,6 +303,8 @@ private:
 
 	UPROPERTY()
 	class ABlasternautPlayerState* BlasternautPlayerState = nullptr;
+	
+	bool bLeftGame = false;
 
 	// --------------- Default Weapon ---------------
 	UPROPERTY(EditAnywhere)
@@ -233,6 +313,7 @@ private:
 	void HandleWeaponsOnElim();
 	void HandleWeaponOnElim(AWeapon* Weapon);
 
+	
 public:
 	bool IsAiming();
 	bool IsWeaponEquipped();
@@ -264,4 +345,10 @@ public:
 	FORCEINLINE UStaticMeshComponent* GetAttachedGrenade() const { return AttachedGrenade; }
 
 	FORCEINLINE UBuffComponent* GetBuff() const { return Buff; }
+	bool IsLocallyReloading() const;
+
+	FORCEINLINE ULagCompensationComponent* GetLagCompensation() const { return LagCompensation; }
+	//FORCEINLINE const TMap<FName, class UBoxComponent*> GetHitCollisionBoxes() { return HitCollisionBoxes; }
+	FORCEINLINE bool IsSwapFinished() const { return bFinishedSwapping; }
+	FORCEINLINE void SetSwapFinished(bool SwapFinished) { bFinishedSwapping = SwapFinished; }
 };

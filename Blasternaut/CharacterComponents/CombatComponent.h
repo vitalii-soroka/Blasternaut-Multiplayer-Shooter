@@ -17,28 +17,45 @@ class BLASTERNAUT_API UCombatComponent : public UActorComponent
 	GENERATED_BODY()
 
 public:	
+
 	UCombatComponent();
 	friend class ABlasternautCharacter;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
+	// --------------- Equip Weapon ---------------
 	void EquipWeapon(AWeapon* WeaponToEquip);
 	void PlayEquipSound(AWeapon* EquipWeapon);
+
+	// --------------- Fire Weapon ---------------
+	void FireButtonPressed(bool bPressed);
+
+	// --------------- Reload / Swap Weapon ---------------
 	void Reload();
-	void SwapWeapons();
 
 	UFUNCTION(BlueprintCallable)
 	void FinishReloading();
 
-	void UpdateAmmoValues();
-	void UpdateShotgunAmmoValues();
-	void FireButtonPressed(bool bPressed);
+	UFUNCTION(BlueprintCallable)
+	void FinishSwap();
+
+	UFUNCTION(BlueprintCallable)
+	void FinishSwapAttachWeapons();
 
 	UFUNCTION(BlueprintCallable)
 	void ShotgunShellReload();
 
-	void JumpToShotgunEnd();
+	void SwapWeapons();
 
+	bool bLocallyReloading = false;
+
+	// --------------- Ammo Weapon ---------------
+	void UpdateAmmoValues();
+	void UpdateShotgunAmmoValues();
+	void JumpToShotgunEnd();
+	void PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount);
+
+	// --------------- Grenade ---------------
 	UFUNCTION(BlueprintCallable)
 	void ThrowGrenadeFinished();
 
@@ -46,11 +63,10 @@ public:
 	void LaunchGrenade();
 
 	UFUNCTION(Server, Reliable)
-	void ServerLaunchGrenade(const FVector_NetQuantize& Target);
-
-	void PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount);
-
+	void Server_LaunchGrenade(const FVector_NetQuantize& Target);
+	
 protected:
+
 	virtual void BeginPlay() override;
 	void SetAiming(bool bToAim);
 
@@ -63,13 +79,32 @@ protected:
 	UFUNCTION()
 	void OnRep_SecondaryWeapon();
 
+	// --------------- FIRE ---------------
 	void Fire();
 
-	UFUNCTION(Server, Reliable)
-	void ServerFire(const FVector_NetQuantize& TraceHitTarget);
+	void FireProjectileWeapon();
+	void FireHitScanWeapon();
+	void FireShotgunWeapon();
+
+	void LocalFire(const FVector_NetQuantize& TraceHitTarget);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void ServerFire(const FVector_NetQuantize& TraceHitTarget, float FireDelay);
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastFire(const FVector_NetQuantize& TraceHitTarget);
+
+	/*
+	* Currenly used by shotgun weapon, to get several hit targets from one shot
+	*/
+
+	void LocalShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void ServerShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets, float FireDelay);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets);
 
 	void TraceUnderCrosshairs(FHitResult& TraceHitResult);
 	
@@ -98,6 +133,7 @@ protected:
 	void EquipSecondaryWeapon(AWeapon* WeaponToEquip);
 
 private:
+
 	UPROPERTY()
 	class ABlasternautCharacter* Character;
 	UPROPERTY()
@@ -111,8 +147,18 @@ private:
 	UPROPERTY(ReplicatedUsing = OnRep_SecondaryWeapon)
 	AWeapon* SecondaryWeapon;
 
-	UPROPERTY(Replicated)
-	bool bIsAiming;
+	// --------------- Aiming ---------------
+
+	UPROPERTY(ReplicatedUsing = OnRep_Aiming)
+	bool bIsAiming = false;
+
+	// Button pressed shows current local aim
+	bool bAimButtonPressed = false;
+
+	UFUNCTION()
+	void OnRep_Aiming();
+
+	// --------------- Movement ---------------
 
 	UPROPERTY(EditAnywhere)
 	float BaseWalkSpeed;
@@ -166,9 +212,7 @@ private:
 	UFUNCTION()
 	void OnRep_CarriedAmmo();
 
-	//
-	// - - - - Starting weapon ammo - - - -
-	//
+	// --------------- Starting weapon ammo ---------------
 
 	TMap<EWeaponType, int32> CarriedAmmoMap;
 	

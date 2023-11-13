@@ -123,6 +123,11 @@ void UBuffComponent::ResetJump()
 	MulticastJumpBuff(InitialJumpVelocity);
 }
 
+bool UBuffComponent::IsCharacterActive() const
+{
+	return Character && !Character->IsElimmed(); 
+}
+
 void UBuffComponent::MulticastJumpBuff_Implementation(float JumpVelocity)
 {
 	if (Character && Character->GetCharacterMovement())
