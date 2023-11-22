@@ -154,6 +154,8 @@ void UCombatComponent::Fire()
 	{
 		bCanFire = false;
 
+		CrosshairShootingFactor = 1.75f;
+
 		switch (EquippedWeapon->FireType)
 		{
 		case EFireType::EFT_Projectile:
@@ -167,7 +169,7 @@ void UCombatComponent::Fire()
 			break;
 		}
 
-		CrosshairShootingFactor = 1.75f;
+		StartFireTimer();
 	}
 
 	// Temp sound for no ammo // 22.10.23
@@ -180,7 +182,6 @@ void UCombatComponent::Fire()
 	//	);
 	//}
 
-	StartFireTimer();
 }
 
 void UCombatComponent::FireProjectileWeapon()
@@ -258,8 +259,9 @@ bool UCombatComponent::CanFire()
 
 	//if (EquippedWeapon->GetWeaponType() == EWeaponType::EWT_Shotgun && CombatState == ECombatState::ECS_Reloading) 
 	//	return true;
-	if (!EquippedWeapon->IsEmpty() && bCanFire && CombatState == ECombatState::ECS_Reloading && EquippedWeapon->GetWeaponType() == EWeaponType::EWT_Shotgun)
-		return true;
+	bool bShotgunCanFire = !EquippedWeapon->IsEmpty() && bCanFire && 
+		CombatState == ECombatState::ECS_Reloading && EquippedWeapon->GetWeaponType() == EWeaponType::EWT_Shotgun;
+	if (bShotgunCanFire) return true;
 
 	if (bLocallyReloading) return false;
 
@@ -308,11 +310,14 @@ void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& T
 
 void UCombatComponent::LocalShotgunFire(const TArray<FVector_NetQuantize>& TraceHitTargets)
 {
-	AShotgun* Shotgun = Cast<AShotgun>(EquippedWeapon);
-	if (Shotgun == nullptr || Character == nullptr) return;
+	if (Character == nullptr) return;
+
+	auto* Shotgun = Cast<AShotgun>(EquippedWeapon);
+	if (Shotgun == nullptr) return;
 
 	if (CombatState == ECombatState::ECS_Reloading || CombatState == ECombatState::ECS_Unoccupied)
 	{
+		bLocallyReloading = false;
 		Character->PlayFireMontage(bIsAiming);
 		Shotgun->FireShotgun(TraceHitTargets);
 		CombatState = ECombatState::ECS_Unoccupied;
@@ -351,7 +356,7 @@ void UCombatComponent::PickupAmmo(EWeaponType WeaponType, int32 AmmoAmount)
 
 		if (EquippedWeapon->IsEmpty())
 		{
-				Reload();
+			Reload();
 		}
 	}
 }

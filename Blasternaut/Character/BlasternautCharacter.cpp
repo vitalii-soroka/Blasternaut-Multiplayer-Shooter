@@ -25,6 +25,9 @@
 #include "Sound/SoundCue.h"
 #include "TimerManager.h"
 #include "Components/BoxComponent.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "Blasternaut/GameState/BlasternautGameState.h"
 
 //
 // ------------------- Init and Tick -------------------
@@ -266,6 +269,16 @@ void ABlasternautCharacter::PollInit()
 		{
 			BlasternautPlayerState->AddToScore(0.f);
 			BlasternautPlayerState->AddToDefeats(0);
+			SetTeamColor(BlasternautPlayerState->GetTeam());
+
+			auto* BlasternautGameState = Cast<ABlasternautGameState>(UGameplayStatics::GetGameState(this));
+			if (BlasternautGameState && BlasternautGameState->TopScoringPlayers.Contains(BlasternautPlayerState))
+			{
+				// client - runs on invoking client
+				// server - runs on server and all clients
+				Multicast_GainedTheLead();
+			}
+
 		}
 	}
 }
@@ -290,7 +303,7 @@ void ABlasternautCharacter::Destroyed()
 		ElimBotComponent->DestroyComponent();
 	}
 
-	auto* BlasternautGameMode = Cast<ABlasternautGameMode>(UGameplayStatics::GetGameMode(this));
+	BlasternautGameMode = BlasternautGameMode == nullptr ? GetWorld()->GetAuthGameMode<ABlasternautGameMode>() : BlasternautGameMode;
 	bool bMatchIsNotInProgress = BlasternautGameMode && BlasternautGameMode->GetMatchState() != MatchState::InProgress;
 
 	if (Combat && Combat->EquippedWeapon && bMatchIsNotInProgress)
@@ -712,7 +725,7 @@ void ABlasternautCharacter::CrouchButtonPressed()
 }
 
 //
-// ------------------- Replicated -------------------
+// ------------------- RPC -------------------
 //
 void ABlasternautCharacter::OnRep_ReplicatedMovement()	
 {
@@ -757,6 +770,62 @@ void ABlasternautCharacter::OnRep_Shield(float LastShield)
 	}
 }
 
+void ABlasternautCharacter::Multicast_GainedTheLead_Implementation()
+{
+	if (CrownSystem == nullptr) return;
+
+	// Creates effect for the first time
+	if (CrownComponent == nullptr)
+	{
+		// how high should be crown from character mesh
+		float offsetZ = bIsCrouched ? 150.f : 110.f;
+
+		CrownComponent = UNiagaraFunctionLibrary::SpawnSystemAttached(
+			CrownSystem,
+			GetMesh(),
+			FName(),
+			GetActorLocation() + FVector(0.f, 0.f, offsetZ),
+			GetActorRotation(),
+			EAttachLocation::KeepWorldPosition,
+			false
+		);
+	}
+	// Activates already created effect
+	if (CrownComponent)
+	{
+		CrownComponent->Activate();
+	}
+}
+
+void ABlasternautCharacter::Multicast_LostTheLead_Implementation()
+{
+	if (CrownComponent)
+	{
+		CrownComponent->DestroyComponent();
+	}
+}
+
+void ABlasternautCharacter::SetTeamColor(ETeam Team)
+{
+	// TODO remake this method
+	if (GetMesh() == nullptr || DefaultMaterial == nullptr) return;
+	switch (Team)
+	{
+	case ETeam::ET_NoTeam:
+		GetMesh()->SetMaterial(0, DefaultMaterial);
+		DissolveMaterialInst = BlueDissolveMatInst;
+		break;
+	case ETeam::ET_BlueTeam:
+		GetMesh()->SetMaterial(0, BlueMaterial);
+		DissolveMaterialInst = BlueDissolveMatInst;
+		break;
+	case ETeam::ET_RedTeam:
+		GetMesh()->SetMaterial(0, RedMaterial);
+		DissolveMaterialInst = RedDissolveMatInst;
+		break;
+	}
+}
+
 //
 // ------------------- HUD -------------------
 //
@@ -792,11 +861,11 @@ void ABlasternautCharacter::UpdateHUDAmmo()
 }
 
 //
-// ------------------- DefaultWeapon -------------------
+// ------------------- Default Weapon -------------------
 //
 void ABlasternautCharacter::SpawnDefaultWeapon()
 {
-	auto* BlasternautGameMode = Cast<ABlasternautGameMode>(UGameplayStatics::GetGameMode(this));
+	BlasternautGameMode = BlasternautGameMode == nullptr ? GetWorld()->GetAuthGameMode<ABlasternautGameMode>() : BlasternautGameMode;
 	UWorld* World = GetWorld();
 
 	bool bShouldSpawn = !bElimmed && BlasternautGameMode && DefaultWeaponClass && World && Combat;
@@ -821,7 +890,8 @@ void ABlasternautCharacter::Elim(bool bPlayerLeft)
 
 void ABlasternautCharacter::OnElimTimerFinished()
 {
-	auto* BlasternautGameMode = GetWorld()->GetAuthGameMode<ABlasternautGameMode>();
+	BlasternautGameMode = BlasternautGameMode == nullptr ? GetWorld()->GetAuthGameMode<ABlasternautGameMode>() : BlasternautGameMode;
+
 	if (BlasternautGameMode && !bLeftGame)
 	{
 		BlasternautGameMode->RequestRespawn(this, Controller);
@@ -879,11 +949,7 @@ void ABlasternautCharacter::MulticastElim_Implementation(bool bPlayerLeft)
 	// Spawns Elim sound
 	if (ElimBotSound)
 	{
-		UGameplayStatics::SpawnSoundAtLocation(
-			this,
-			ElimBotSound,
-			GetActorLocation()
-		);
+		UGameplayStatics::SpawnSoundAtLocation(this, ElimBotSound, GetActorLocation());
 	}
 
 	// Hide Sniper Rifle Scope
@@ -893,6 +959,12 @@ void ABlasternautCharacter::MulticastElim_Implementation(bool bPlayerLeft)
 	if (HideAimWidget)
 	{
 		ShowSniperScopeWidget(false);
+	}
+
+	// Destroy lead crown
+	if (CrownComponent)
+	{
+		CrownComponent->DestroyComponent();
 	}
 
 	//
@@ -906,7 +978,8 @@ void ABlasternautCharacter::MulticastElim_Implementation(bool bPlayerLeft)
 
 void ABlasternautCharacter::ServerLeaveGame_Implementation()
 {
-	auto* BlasternautGameMode = GetWorld()->GetAuthGameMode<ABlasternautGameMode>();
+	BlasternautGameMode = BlasternautGameMode == nullptr ? GetWorld()->GetAuthGameMode<ABlasternautGameMode>() : BlasternautGameMode;
+
 	BlasternautPlayerState = BlasternautPlayerState == nullptr ? GetPlayerState<ABlasternautPlayerState>() : BlasternautPlayerState;
 	if (BlasternautGameMode && BlasternautPlayerState)
 	{
@@ -945,9 +1018,18 @@ void ABlasternautCharacter::HandleWeaponOnElim(AWeapon* Weapon)
 //
 // ------------------- To Sort -------------------
 //
+
+// Called only on server
 void ABlasternautCharacter::ReceiveDamage(AActor* DamageActor, float Damage, const UDamageType* DamageType, AController* InstigatorController, AActor* DamageCauser)
 {
 	if (bElimmed) return;
+
+	BlasternautGameMode = BlasternautGameMode == nullptr ? GetWorld()->GetAuthGameMode<ABlasternautGameMode>() : BlasternautGameMode;
+	if (BlasternautGameMode == nullptr) return;
+
+	Damage = BlasternautGameMode->CalculateDamage(InstigatorController, Controller, Damage);
+
+	if (Damage <= 0) return;
 
 	// Shield absorbs
 	float DamageToHealth = Damage;
@@ -969,21 +1051,17 @@ void ABlasternautCharacter::ReceiveDamage(AActor* DamageActor, float Damage, con
 
 	UpdateHUDHealth();
 	UpdateHUDShield();
+	PlayHitReactMontage();
 
 	// Character should be eliminated
 	if (Health == 0.f)
 	{
-		auto* BlasternautGameMode = GetWorld()->GetAuthGameMode<ABlasternautGameMode>();
 		if (BlasternautGameMode)
 		{
 			BlasternautController = BlasternautController ? BlasternautController : Cast<ABlasternautController>(Controller);
 			auto* AttackerController = Cast<ABlasternautController>(InstigatorController);
 			BlasternautGameMode->PlayerEliminated(this, BlasternautController, AttackerController);
 		}
-	}
-	else
-	{
-		PlayHitReactMontage();
 	}
 }
 
@@ -998,6 +1076,10 @@ void ABlasternautCharacter::HideCameraInCharacter()
 		{
 			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
 		}
+		if (Combat && Combat->SecondaryWeapon && Combat->SecondaryWeapon->GetWeaponMesh())
+		{
+			Combat->SecondaryWeapon->GetWeaponMesh()->bOwnerNoSee = true;
+		}
 	}
 	else
 	{
@@ -1005,6 +1087,10 @@ void ABlasternautCharacter::HideCameraInCharacter()
 		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
 		{
 			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
+		}
+		if (Combat && Combat->SecondaryWeapon && Combat->SecondaryWeapon->GetWeaponMesh())
+		{
+			Combat->SecondaryWeapon->GetWeaponMesh()->bOwnerNoSee = false;
 		}
 	}
 }

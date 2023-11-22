@@ -13,6 +13,7 @@ UCLASS()
 class BLASTERNAUT_API ABlasternautGameState : public AGameState
 {
 	GENERATED_BODY()
+
 public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -21,6 +22,27 @@ public:
 	UPROPERTY(Replicated)
 	TArray<ABlasternautPlayerState*> TopScoringPlayers;
 	
+	// ---------- Teams ----------
+
+	TArray<ABlasternautPlayerState*> RedTeam;
+	TArray<ABlasternautPlayerState*> BlueTeam;
+
+	UPROPERTY(ReplicatedUsing = OnRep_RedTeamScore)
+	float RedTeamScore = 0.f;
+
+	UFUNCTION()
+	void OnRep_RedTeamScore();
+
+	UPROPERTY(ReplicatedUsing = OnRep_BlueTeamScore)
+	float BlueTeamScore = 0.f;
+
+	UFUNCTION()
+	void OnRep_BlueTeamScore();
+
+	void RedTeamScores();
+	void BlueTeamScores();
+
+
 private:
 	float TopScore = 0.f;
 };

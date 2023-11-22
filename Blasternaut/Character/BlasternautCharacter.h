@@ -8,6 +8,7 @@
 #include "Blasternaut/Interfaces/InteractWithCrosshairsInterface.h"
 #include "Components/TimelineComponent.h"
 #include "Blasternaut/BlasternautTypes/CombatState.h"
+#include "Blasternaut/BlasternautTypes/Team.h"
 #include "BlasternautCharacter.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLeftGame);
@@ -54,6 +55,16 @@ public:
 	void ServerLeaveGame();
 
 	FOnLeftGame OnLeftGame;
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_GainedTheLead();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_LostTheLead();
+
+	// --------------- Team ---------------
+
+	void SetTeamColor(ETeam Team);
 
 	// --------------- HUD ---------------
 	void UpdateHUDHealth();
@@ -166,6 +177,9 @@ protected:
 	UStaticMeshComponent* AttachedGrenade;
 
 private:
+	UPROPERTY()
+	class ABlasternautGameMode* BlasternautGameMode;
+
 	UPROPERTY(VisibleAnywhere, Category = Camera)
 	class USpringArmComponent* CameraBoom;
 
@@ -281,10 +295,27 @@ private:
 	UMaterialInstanceDynamic* DynamicDissolveMaterialInst;
 
 	// Material instance set in Blueprints, used with dynamic material instance
-	UPROPERTY(EditAnywhere, Category = "Elim")
+	UPROPERTY(VisibleAnywhere, Category = "Elim")
 	UMaterialInstance* DissolveMaterialInst;
 
-	// --------------- Elim Bot ---------------
+	// --------------- Team Colors ---------------
+
+	UPROPERTY(EditAnywhere, Category = Elim)
+	UMaterialInstance* DefaultMaterial;
+
+	UPROPERTY(EditAnywhere, Category = Elim)
+	UMaterialInstance* RedDissolveMatInst;
+
+	UPROPERTY(EditAnywhere, Category = Elim)
+	UMaterialInstance* RedMaterial;
+
+	UPROPERTY(EditAnywhere, Category = Elim)
+	UMaterialInstance* BlueDissolveMatInst;
+
+	UPROPERTY(EditAnywhere, Category = Elim)
+	UMaterialInstance* BlueMaterial;
+
+	// --------------- Elim Effect ---------------
 	FTimerHandle ElimTimer;
 	void OnElimTimerFinished();
 
@@ -305,6 +336,13 @@ private:
 	class ABlasternautPlayerState* BlasternautPlayerState = nullptr;
 	
 	bool bLeftGame = false;
+
+	UPROPERTY(EditAnywhere)
+	class UNiagaraSystem* CrownSystem;
+	
+	UPROPERTY()
+	class UNiagaraComponent* CrownComponent;
+
 
 	// --------------- Default Weapon ---------------
 	UPROPERTY(EditAnywhere)

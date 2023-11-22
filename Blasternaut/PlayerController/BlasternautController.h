@@ -26,6 +26,10 @@ public:
 	void SetHUDMatchCountdown(float CountdownTime);
 	void SetHUDAnnouncementCountDown(float CountdownTime);
 	void SetHUDGrenades(int32 Grenades);
+	void HideTeamScores();
+	void InitTeamScores();
+	void SetHUDRedTeamScore(int32 RedScore);
+	void SetHUDBlueTeamScore(int32 BlueScore);
 
 	virtual void Tick(float DeltaTime) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -34,15 +38,16 @@ public:
 
 	virtual void ReceivedPlayer() override; // sync with server clock as soon as possible
 	
-	void OnMatchStateSet(FName State);
-
-	void HandleMatchHasStarted();
+	void OnMatchStateSet(FName State, bool bTeamsMatch = false);
+	void HandleMatchHasStarted(bool bTeamsMatch = false);
 	void HandleCooldown();
 
 
 	float SingleTripTime = 0.f;
 
 	FHighPingDelegate HighPingDelegate;
+
+	void BroadCastElim(APlayerState* Attacker, APlayerState* Victim);
 
 protected:
 
@@ -92,6 +97,18 @@ protected:
 	void CheckHighPing(float DeltaTime);
 
 	void ShowReturnToMainMenu();
+
+	UFUNCTION(Client, Reliable)
+	void ClientElimAnnouncement(APlayerState* Attacker, APlayerState* Victim);
+
+	UPROPERTY(ReplicatedUsing = OnRep_ShowTeamScores)
+	bool bShowTeamScores = false;
+
+	UFUNCTION()
+	void OnRep_ShowTeamScores();
+
+	FString GetInfoText(const TArray<class ABlasternautPlayerState*>& Players) const;
+	FString GetTeamsInfoText(class ABlasternautGameState* BlasternautGameState) const;
 
 private:
 	bool TrySetHUD();

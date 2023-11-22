@@ -8,9 +8,9 @@
 #include "Particles/ParticleSystemComponent.h"
 #include "Sound/SoundCue.h"
 #include "WeaponTypes.h"
-#include "DrawDebugHelpers.h"
 #include "Blasternaut/CharacterComponents/LagCompensationComponent.h"
 #include "Blasternaut/PlayerController/BlasternautController.h"
+//#include "DrawDebugHelpers.h"
 
 void AHitScanWeapon::Fire(const FVector& HitTarget)
 {
@@ -37,9 +37,11 @@ void AHitScanWeapon::Fire(const FVector& HitTarget)
 		// On server
 		if (HasAuthority() && bCauseAuthDamage)
 		{
+			const float DamageToCause = FireHit.BoneName.ToString() == FString("head") ? HeadShotDamage : Damage;
+
 			UGameplayStatics::ApplyDamage(
 				BlasternautCharacter,
-				Damage,
+				DamageToCause,
 				InstigatorController,
 				this,
 				UDamageType::StaticClass()
@@ -57,8 +59,7 @@ void AHitScanWeapon::Fire(const FVector& HitTarget)
 					BlasternautCharacter,
 					Start,
 					HitTarget,
-					OwnerController->GetServerTime() - OwnerController->SingleTripTime,
-					this
+					OwnerController->GetServerTime() - OwnerController->SingleTripTime
 				);
 			}
 		}
@@ -121,8 +122,12 @@ void AHitScanWeapon::WeaponTraceHit(const FVector& TraceStart, const FVector& Hi
 	{
 		BeamEnd = OutHit.ImpactPoint;
 	}
+	else
+	{
+		OutHit.ImpactPoint = End;
+	}
 
-	DrawDebugSphere(GetWorld(), BeamEnd, 16.f, 12.f, FColor::Orange, true);
+	//DrawDebugSphere(GetWorld(), BeamEnd, 16.f, 12.f, FColor::Orange, true);
 
 	if (BeamParticles)
 	{

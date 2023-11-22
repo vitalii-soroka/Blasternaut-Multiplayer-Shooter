@@ -11,6 +11,7 @@ void ABlasternautPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(ABlasternautPlayerState, Defeats);
+	DOREPLIFETIME(ABlasternautPlayerState, Team);
 }
 
 void ABlasternautPlayerState::AddToScore(float ScoreAmount)
@@ -62,4 +63,24 @@ bool ABlasternautPlayerState::TrySetController()
 		return Controller != nullptr; 
 	}
 	return false;
+}
+
+void ABlasternautPlayerState::OnRep_Team()
+{
+	auto* BCharacter = Cast<ABlasternautCharacter>(GetPawn());
+	if (BCharacter)
+	{
+		BCharacter->SetTeamColor(Team);
+	}
+}
+
+void ABlasternautPlayerState::SetTeam(ETeam TeamToSet)
+{
+	Team = TeamToSet;
+
+	auto* BCharacter = Cast<ABlasternautCharacter>(GetPawn());
+	if (BCharacter)
+	{
+		BCharacter->SetTeamColor(Team);
+	}
 }

@@ -72,14 +72,15 @@ public:
 	void SaveFramePackage(FFramePackage& Package);
 
 	// ---------- HitScan Weapon ----------
+
 	UFUNCTION(Server, Reliable)
 	void ServerScoreRequest(
 		ABlasternautCharacter* HitCharacter,
 		const FVector_NetQuantize& TraceStart,
 		const FVector_NetQuantize& HitLocation,
-		float HitTime,
-		class AWeapon* DamageCauser
+		float HitTime
 	);
+
 	FServerSideRewindResult ServerSideRewind(
 		ABlasternautCharacter* HitCharacter,
 		const FVector_NetQuantize& TraceStart,

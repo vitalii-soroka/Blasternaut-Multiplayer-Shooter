@@ -16,7 +16,6 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void Destroyed() override;
 	
-
 	// ---------- Server Side Rewind ----------
 	bool bUseServerSideRewind = false;
 	FVector_NetQuantize TraceStart;
@@ -43,7 +42,13 @@ protected:
 
 	/** ---------- Damage ---------- */
 
+	// Only set this for Grenades and Rockets
+	UPROPERTY(EditAnywhere)
 	float Damage = 20.f;
+
+	// Does not matter for Grenades and Rockets
+	UPROPERTY(EditAnywhere)
+	float HeadShotDamage = 40.f;
 
 	UPROPERTY(EditDefaultsOnly)
 	float DamageOuterRadius = 200.f;
@@ -88,4 +93,5 @@ private:
 
 public:
 	FORCEINLINE void SetDamage(float DamageToSet) { Damage = DamageToSet; }
+	FORCEINLINE void SetHeadShotDamage(float DamageToSet) { HeadShotDamage = DamageToSet; }
 };

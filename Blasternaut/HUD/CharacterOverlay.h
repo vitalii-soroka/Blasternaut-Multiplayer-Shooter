@@ -15,6 +15,8 @@ class BLASTERNAUT_API UCharacterOverlay : public UUserWidget
 	GENERATED_BODY()
 public:
 
+	// ---------- Health and Shield ----------
+
 	UPROPERTY(meta = (BindWidget))
 	class UProgressBar* HealthBar;
 
@@ -27,11 +29,24 @@ public:
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* ShieldText;
 
+	// ---------- Score ----------
+	
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* ScoreAmount;
 
 	UPROPERTY(meta = (BindWidget))
+	UTextBlock* RedTeamScore;
+
+	UPROPERTY(meta = (BindWidget))
+	UTextBlock* BlueTeamScore;
+
+	UPROPERTY(meta = (BindWidget))
+	UTextBlock* ScoreSpacerText;
+
+	UPROPERTY(meta = (BindWidget))
 	UTextBlock* DefeatsAmount;
+
+	// ---------- Ammo ----------
 
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* WeaponAmmoAmount;
@@ -44,6 +59,8 @@ public:
 
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* GrenadesText;
+
+	// ---------- Ping ----------
 
 	UPROPERTY(meta = (BindWidget))
 	class UImage* HighPingImage;

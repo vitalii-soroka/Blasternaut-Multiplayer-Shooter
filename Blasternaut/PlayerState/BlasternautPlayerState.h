@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
+#include "Blasternaut/BlasternautTypes/Team.h"
 #include "BlasternautPlayerState.generated.h"
 
 /**
@@ -39,4 +40,14 @@ private:
 	int32 Defeats;
 
 	bool TrySetController();
+
+	UPROPERTY(ReplicatedUsing = OnRep_Team)
+	ETeam Team = ETeam::ET_NoTeam;
+
+	UFUNCTION()
+	void OnRep_Team();
+
+public:
+	FORCEINLINE ETeam GetTeam() const { return Team; }
+	void SetTeam(ETeam TeamToSet);
 };
